@@ -2,6 +2,8 @@
 // boundaries and restarts, corrupt input, and a golden fixture.
 #include "termdict.hh"
 
+#include <algorithm>
+
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -84,6 +86,37 @@ int main() {
 		bool threw = false;
 		try { b.add("a", ""); } catch (const std::invalid_argument&) { threw = true; }
 		CHECK(threw);
+	}
+	// A verifier sees every block byte before it is read; a rejected block throws corrupt.
+	{
+		termdict::builder b;
+		for (int i = 0; i < 5000; ++i) {
+			char k[16];
+			std::snprintf(k, sizeof k, "k%06d", i);
+			b.add(k, std::string(1 + i % 5, 'v'));
+		}
+		auto t = b.finish();
+		struct coverage {
+			std::vector<bool> seen;
+			std::uint64_t reject = ~0ull;  // reject ranges starting here
+		} cov{std::vector<bool>(t.blocks.size()), ~0ull};
+		auto verify = [](void* ctx, std::uint64_t offset, std::uint64_t length) {
+			auto* c = static_cast<coverage*>(ctx);
+			if (offset == c->reject) { return false; }
+			for (std::uint64_t i = offset; i < offset + length; ++i) { c->seen[i] = true; }
+			return true;
+		};
+		termdict::reader r(t.blocks, t.index, verify, &cov);
+		std::size_t n = 0;
+		r.scan("", [&](std::string_view, std::string_view) { return ++n > 0; });
+		CHECK(n == 5000);
+		CHECK(std::all_of(cov.seen.begin(), cov.seen.end(), [](bool v) { return v; }));
+		CHECK(r.find("k002500") && *r.find("k002500") == std::string(1, 'v'));
+		cov.reject = 0;  // the first block
+		bool threw = false;
+		try { (void)r.find("k000001"); } catch (const termdict::corrupt&) { threw = true; }
+		CHECK(threw);
+		CHECK(r.find("k004999"));  // other blocks still answer
 	}
 	// Corrupt block bytes throw termdict::corrupt (or answer) without leaving the buffer.
 	{

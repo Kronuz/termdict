@@ -247,13 +247,19 @@ private:
 // construction; blocks are bounds-checked as they are decoded.
 class reader {
 public:
+	// Called with a byte range of `blocks` before any of it is read; returning false
+	// rejects the range (the read throws corrupt). For checksum verification on first use.
+	using verifier = bool (*)(void* context, std::uint64_t offset, std::uint64_t length);
+
 	reader(std::string_view blocks, std::string_view index) : blocks_(blocks), index_(index) {}
+	reader(std::string_view blocks, std::string_view index, verifier verify, void* context)
+		: blocks_(blocks), index_(index), verify_(verify), context_(context) {}
 
 	// The value stored for key, if present.
 	std::optional<std::string_view> find(std::string_view key) const {
 		auto offset = index_.floor_value(key);
 		if (!offset) { return std::nullopt; }
-		block b(blocks_, *offset);
+		block b = open(*offset);
 		// The last restart whose key is <= key.
 		std::size_t lo = 0, hi = b.restarts();
 		while (hi - lo > 1) {
@@ -269,7 +275,7 @@ public:
 		if (blocks_.empty()) { return; }
 		std::uint64_t offset = index_.floor_value(from).value_or(0);
 		while (offset < blocks_.size()) {
-			block b(blocks_, offset);
+			block b = open(offset);
 			block::cursor c(b, 0);
 			while (c.next()) {
 				if (std::string_view(c.key()) < from) { continue; }
@@ -280,8 +286,24 @@ public:
 	}
 
 private:
+	// The block at offset, verified first when a verifier is set: its length prefix, then
+	// the whole block.
+	block open(std::uint64_t offset) const {
+		if (verify_ && offset < blocks_.size()) {
+			const std::uint64_t head = std::min<std::uint64_t>(varint::leb128::max_bytes, blocks_.size() - offset);
+			if (!verify_(context_, offset, head)) { throw corrupt(); }
+			const char* p = blocks_.data() + offset;
+			std::uint64_t length = 0;
+			if (!varint::leb128::decode(&p, blocks_.data() + offset + head, length) || length > std::uint64_t(blocks_.data() + blocks_.size() - p)) { throw corrupt(); }
+			if (!verify_(context_, offset, std::uint64_t(p - (blocks_.data() + offset)) + length)) { throw corrupt(); }
+		}
+		return block(blocks_, offset);
+	}
+
 	std::string_view blocks_;
 	fst::map index_;
+	verifier verify_ = nullptr;
+	void* context_ = nullptr;
 };
 
 }  // namespace termdict

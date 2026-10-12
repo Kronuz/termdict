@@ -19,6 +19,9 @@ term statistics and postings pointers. Header-only; depends on
   without rebuilding keys.
 - Every length and offset read from a block is bounds-checked; a violation throws
   `termdict::corrupt`. The FST index is validated when the reader is constructed.
+- `reader(blocks, index, verify, context)` calls `verify(context, offset, length)`
+  on each block's bytes before reading them (its length prefix, then the whole
+  block), for checksum verification on first use; a false return throws `corrupt`.
 
 ## Usage
 
