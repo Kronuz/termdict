@@ -1,13 +1,16 @@
 // termdict lookups on a vocabulary (one key per line): present and absent keys, against
-// an open-addressing hash map and a full-vocabulary FST; size per key for each.
+// an open-addressing hash map and a full-vocabulary FST; size per key for each. Medians
+// of batches of 1,024 lookups, then p50 and p99 of single lookups.
 //   termdict_bench KEYS_FILE
 #include "termdict.hh"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <random>
+#include <utility>
 #include <vector>
 
 using clock_type = std::chrono::steady_clock;
@@ -63,6 +66,31 @@ static double median_ns(const std::vector<std::string>& queries, F&& f) {
 	return batches[batches.size() / 2];
 }
 
+// p50 and p99 of single lookups, each timed alone less the timer's own median cost.
+template <typename F>
+static std::pair<double, double> percentiles_ns(const std::vector<std::string>& queries, F&& f) {
+	volatile std::size_t sink = 0;
+	std::vector<double> empty, t;
+	for (int i = 0; i < 100000; ++i) {
+		auto a = clock_type::now();
+		empty.push_back(std::chrono::duration<double, std::nano>(clock_type::now() - a).count());
+	}
+	std::nth_element(empty.begin(), empty.begin() + empty.size() / 2, empty.end());
+	const double overhead = empty[empty.size() / 2];
+	t.reserve(queries.size());
+	for (const auto& q : queries) {
+		auto a = clock_type::now();
+		sink = sink + f(q);
+		t.push_back(std::chrono::duration<double, std::nano>(clock_type::now() - a).count() - overhead);
+	}
+	auto at = [&](double p) {
+		auto k = t.begin() + std::ptrdiff_t(p * double(t.size() - 1));
+		std::nth_element(t.begin(), k, t.end());
+		return *k;
+	};
+	return {at(0.50), at(0.99)};
+}
+
 int main(int argc, char** argv) {
 	std::ifstream in(argc > 1 ? argv[1] : "/usr/share/dict/words");
 	std::vector<std::string> keys;
@@ -106,5 +134,12 @@ int main(int argc, char** argv) {
 		double fa = median_ns(absent, [&](const std::string& k) { return full.get(k).has_value(); });
 		double ha = median_ns(absent, [&](const std::string& k) { return h.contains(k); });
 		std::printf("%-10s %14.1f %14.1f %14.1f\n%-10s %14.1f %14.1f %14.1f\n", "present", tp, fp, hp, "absent", ta, fa, ha);
+	}
+	std::printf("%-10s %14s %14s %14s\n", "single", "termdict p50/p99", "fst p50/p99", "hash map p50/p99");
+	for (const auto* set : {&present, &absent}) {
+		auto tq = percentiles_ns(*set, [&](const std::string& k) { return r.find(k).has_value(); });
+		auto fq = percentiles_ns(*set, [&](const std::string& k) { return full.get(k).has_value(); });
+		auto hq = percentiles_ns(*set, [&](const std::string& k) { return h.contains(k); });
+		std::printf("%-10s %7.0f/%-6.0f %7.0f/%-6.0f %7.0f/%-6.0f\n", set == &present ? "present" : "absent", tq.first, tq.second, fq.first, fq.second, hq.first, hq.second);
 	}
 }
