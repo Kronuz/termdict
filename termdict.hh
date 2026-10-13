@@ -27,7 +27,8 @@
 //
 // Block layout (all integers LEB128):
 //   [block length][entry count][restart count][restart offsets...][entries...]
-// Entry: [shared prefix length][suffix length][suffix][value length][value]
+// Entry: [lengths byte: suffix length << 4 | value length, each 15 when it continues as a
+// LEB128 of the rest][shared prefix length][suffix rest?][value rest?][suffix][value]
 // Restart points have a shared length of 0; offsets are relative to the first entry.
 
 #pragma once
@@ -76,10 +77,12 @@ public:
 		} else {
 			restarts_.push_back(entries_.size());
 		}
+		const std::size_t suffix = key.size() - shared;
+		entries_.push_back(char(std::min<std::size_t>(suffix, 15) << 4 | std::min<std::size_t>(value.size(), 15)));
 		put(entries_, shared);
-		put(entries_, key.size() - shared);
+		if (suffix >= 15) { put(entries_, suffix - 15); }
+		if (value.size() >= 15) { put(entries_, value.size() - 15); }
 		entries_.append(key.substr(shared));
-		put(entries_, value.size());
 		entries_.append(value);
 		++pending_;
 		last_.assign(key);
@@ -159,6 +162,26 @@ public:
 	std::uint64_t next_block() const noexcept { return next_block_; }
 
 	// Sequential decoding from a restart point; key accumulates the prefix.
+	// Reads an entry's header at p: the lengths byte, the shared prefix length, and any
+	// continued lengths; leaves p at the suffix, with the suffix and value bounds-checked.
+	static void header(const char*& p, const char* end, std::uint64_t& shared, std::uint64_t& suffix, std::uint64_t& value) {
+		if (p == end) { throw corrupt(); }
+		const std::uint8_t lengths = std::uint8_t(*p++);
+		suffix = lengths >> 4;
+		value = lengths & 15;
+		std::uint64_t more = 0;
+		if (!varint::leb128::decode(&p, end, shared)) { throw corrupt(); }
+		if (suffix == 15) {
+			if (!varint::leb128::decode(&p, end, more) || more > std::uint64_t(end - p)) { throw corrupt(); }
+			suffix += more;
+		}
+		if (value == 15) {
+			if (!varint::leb128::decode(&p, end, more) || more > std::uint64_t(end - p)) { throw corrupt(); }
+			value += more;
+		}
+		if (suffix > std::uint64_t(end - p) || value > std::uint64_t(end - p) - suffix) { throw corrupt(); }
+	}
+
 	class cursor {
 	public:
 		cursor(const block& b, std::size_t restart) : b_(&b), p_(b.entries_ + b.restarts_[restart]), index_(restart * restart_interval) {}
@@ -167,13 +190,12 @@ public:
 		bool next() {
 			if (index_ == b_->count_) { return false; }
 			std::uint64_t shared = 0, suffix = 0, value = 0;
-			if (!varint::leb128::decode(&p_, b_->end_, shared) || !varint::leb128::decode(&p_, b_->end_, suffix)) { throw corrupt(); }
-			if (shared > key_.size() || suffix > std::uint64_t(b_->end_ - p_)) { throw corrupt(); }
+			header(p_, b_->end_, shared, suffix, value);
+			if (shared > key_.size()) { throw corrupt(); }
 			if (index_ % restart_interval == 0 && shared != 0) { throw corrupt(); }
 			key_.resize(shared);
 			key_.append(p_, suffix);
 			p_ += suffix;
-			if (!varint::leb128::decode(&p_, b_->end_, value) || value > std::uint64_t(b_->end_ - p_)) { throw corrupt(); }
 			value_ = std::string_view(p_, value);
 			p_ += value;
 			++index_;
@@ -194,11 +216,9 @@ public:
 	// The full key at restart point r (restart entries are not prefix-compressed).
 	std::string_view restart_key(std::size_t r) const {
 		const char* p = entries_ + restarts_[r];
-		std::uint64_t shared = 0, suffix = 0;
-		if (!varint::leb128::decode(&p, end_, shared) || !varint::leb128::decode(&p, end_, suffix) || shared != 0 ||
-			suffix > std::uint64_t(end_ - p)) {
-			throw corrupt();
-		}
+		std::uint64_t shared = 0, suffix = 0, value = 0;
+		header(p, end_, shared, suffix, value);
+		if (shared != 0) { throw corrupt(); }
 		return {p, suffix};
 	}
 
@@ -215,12 +235,9 @@ public:
 		const std::size_t last = std::min(count_, (r + 1) * restart_interval);
 		for (std::size_t i = r * restart_interval; i < last; ++i) {
 			std::uint64_t shared = 0, suffix = 0, value = 0;
-			if (!varint::leb128::decode(&p, end_, shared) || !varint::leb128::decode(&p, end_, suffix) || suffix > std::uint64_t(end_ - p)) {
-				throw corrupt();
-			}
+			header(p, end_, shared, suffix, value);
 			const char* sfx = p;
 			p += suffix;
-			if (!varint::leb128::decode(&p, end_, value) || value > std::uint64_t(end_ - p)) { throw corrupt(); }
 			const char* val = p;
 			p += value;
 			visit(std::string_view(val, value));
