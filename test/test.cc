@@ -168,6 +168,30 @@ int main() {
 		for (std::string w; std::getline(in, w);) { if (!w.empty()) { ref.emplace(w, std::to_string(i++)); } }
 		check(ref, rng, "abcdefghijklmnopqrstuvwxyzAB", 300);
 	}
+	// Restart runs: each value records whether the builder said it starts a run and its
+	// index; find_run replays the run from its first entry through the key's, in order.
+	{
+		termdict::builder b;
+		std::vector<std::string> keys;
+		for (int i = 0; i < 2000; ++i) {
+			char k[16];
+			std::snprintf(k, sizeof k, "key%06d", i * 3);
+			keys.push_back(k);
+		}
+		for (std::size_t i = 0; i < keys.size(); ++i) { b.add(keys[i], (b.next_is_restart() ? "R" : "-") + std::to_string(i)); }
+		auto t = b.finish();
+		termdict::reader r(t.blocks, t.index);
+		for (std::size_t i = 0; i < keys.size(); ++i) {
+			std::vector<std::string> run;
+			auto v = r.find_run(keys[i], [&](std::string_view value) { run.emplace_back(value); });
+			CHECK(v && *v == run.back());
+			CHECK(!run.empty() && run.front()[0] == 'R');
+			for (std::size_t j = 1; j < run.size(); ++j) { CHECK(run[j][0] == '-'); }
+			CHECK(std::stoul(run.back().substr(1)) == i && std::stoul(run.front().substr(1)) == i + 1 - run.size());
+		}
+		std::size_t visited = 0;
+		CHECK(!r.find_run("key000001", [&](std::string_view) { ++visited; }) && visited >= 1);
+	}
 	std::printf("termdict: %s\n", failures ? "FAILED" : "ok");
 	return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

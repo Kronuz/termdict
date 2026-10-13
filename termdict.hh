@@ -95,6 +95,11 @@ public:
 
 	std::uint64_t size() const noexcept { return count_; }
 
+	// Whether the next add() starts a restart run (a block's first entry, or every
+	// restart_interval-th). A value can then hold state that the entries after it in the
+	// same run encode against, which find_run() replays.
+	bool next_is_restart() const noexcept { return pending_ % restart_interval == 0; }
+
 private:
 	static void put(std::string& out, std::uint64_t v) {
 		char buf[varint::leb128::max_bytes];
@@ -202,7 +207,9 @@ public:
 	// Finds key's value by scanning from restart r without building keys: track how much
 	// of `key` the previous entry matched (m). An entry sharing more than m with its
 	// predecessor sorts like the predecessor (below key); one sharing less sorts above.
-	std::optional<std::string_view> find_from(std::size_t r, std::string_view key) const {
+	// visit(value) sees each entry's value from the restart through key's, in order.
+	template <typename Visit>
+	std::optional<std::string_view> find_from(std::size_t r, std::string_view key, Visit&& visit) const {
 		const char* p = entries_ + restarts_[r];
 		std::size_t m = 0;
 		const std::size_t last = std::min(count_, (r + 1) * restart_interval);
@@ -216,6 +223,7 @@ public:
 			if (!varint::leb128::decode(&p, end_, value) || value > std::uint64_t(end_ - p)) { throw corrupt(); }
 			const char* val = p;
 			p += value;
+			visit(std::string_view(val, value));
 			if (i == r * restart_interval) {
 				if (shared != 0) { throw corrupt(); }
 			} else if (shared > m) {
@@ -257,6 +265,13 @@ public:
 
 	// The value stored for key, if present.
 	std::optional<std::string_view> find(std::string_view key) const {
+		return find_run(key, [](std::string_view) {});
+	}
+
+	// The same; visit(value) also sees every value of key's restart run up to and including
+	// key's own (and some past where key would sort when it is absent).
+	template <typename Visit>
+	std::optional<std::string_view> find_run(std::string_view key, Visit&& visit) const {
 		auto offset = index_.floor_value(key);
 		if (!offset) { return std::nullopt; }
 		block b = open(*offset);
@@ -266,7 +281,7 @@ public:
 			std::size_t mid = (lo + hi) / 2;
 			if (b.restart_key(mid) <= key) { lo = mid; } else { hi = mid; }
 		}
-		return b.find_from(lo, key);
+		return b.find_from(lo, key, visit);
 	}
 
 	// Calls f(key, value) for every entry with key >= from, in order, until f returns false.
