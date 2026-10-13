@@ -1,6 +1,7 @@
 // termdict lookups on a vocabulary (one key per line): present and absent keys, against
 // an open-addressing hash map and a full-vocabulary FST; size per key for each. Medians
-// of batches of 1,024 lookups, then p50 and p99 of single lookups.
+// of batches of 1,024 lookups, then p50 and p99 over batches of 16 (a coarse clock, as
+// in a VM, cannot time one lookup).
 //   termdict_bench KEYS_FILE
 #include "termdict.hh"
 
@@ -66,7 +67,8 @@ static double median_ns(const std::vector<std::string>& queries, F&& f) {
 	return batches[batches.size() / 2];
 }
 
-// p50 and p99 of single lookups, each timed alone less the timer's own median cost.
+// p50 and p99 of the per-lookup time over batches of 16, each batch timed alone less the
+// timer's own median cost.
 template <typename F>
 static std::pair<double, double> percentiles_ns(const std::vector<std::string>& queries, F&& f) {
 	volatile std::size_t sink = 0;
@@ -77,11 +79,11 @@ static std::pair<double, double> percentiles_ns(const std::vector<std::string>& 
 	}
 	std::nth_element(empty.begin(), empty.begin() + empty.size() / 2, empty.end());
 	const double overhead = empty[empty.size() / 2];
-	t.reserve(queries.size());
-	for (const auto& q : queries) {
+	t.reserve(queries.size() / 16);
+	for (std::size_t i = 0; i + 16 <= queries.size(); i += 16) {
 		auto a = clock_type::now();
-		sink = sink + f(q);
-		t.push_back(std::chrono::duration<double, std::nano>(clock_type::now() - a).count() - overhead);
+		for (std::size_t j = i; j < i + 16; ++j) { sink = sink + f(queries[j]); }
+		t.push_back((std::chrono::duration<double, std::nano>(clock_type::now() - a).count() - overhead) / 16);
 	}
 	auto at = [&](double p) {
 		auto k = t.begin() + std::ptrdiff_t(p * double(t.size() - 1));
@@ -135,7 +137,7 @@ int main(int argc, char** argv) {
 		double ha = median_ns(absent, [&](const std::string& k) { return h.contains(k); });
 		std::printf("%-10s %14.1f %14.1f %14.1f\n%-10s %14.1f %14.1f %14.1f\n", "present", tp, fp, hp, "absent", ta, fa, ha);
 	}
-	std::printf("%-10s %14s %14s %14s\n", "single", "termdict p50/p99", "fst p50/p99", "hash map p50/p99");
+	std::printf("%-10s %14s %14s %14s\n", "batch16", "termdict p50/p99", "fst p50/p99", "hash map p50/p99");
 	for (const auto* set : {&present, &absent}) {
 		auto tq = percentiles_ns(*set, [&](const std::string& k) { return r.find(k).has_value(); });
 		auto fq = percentiles_ns(*set, [&](const std::string& k) { return full.get(k).has_value(); });
