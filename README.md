@@ -8,14 +8,18 @@ term statistics and postings pointers. Header-only; depends on
 
 ## What it is
 
-- `termdict::builder`: `add(key, value)` in strictly increasing key order; `finish()`
-  returns two byte strings, the blocks and the index.
+- `termdict::builder(alphabet)`: `add(key, value)` in strictly increasing key order;
+  `finish()` returns two byte strings, the blocks and the index. `alphabet` names every
+  byte the keys use (empty: all 256).
+- Key suffixes are coded over the alphabet: each byte becomes its rank,
+  `bit_width(size - 1)` bits wide, so codes sort as the bytes do. Lowercase terms take
+  5 bits a byte. Each restart run stores its suffixes as one bit stream.
 - `termdict::reader(blocks, index)`: `find(key)` returns the value bytes or nothing;
   `scan(from, f)` visits entries with keys `>= from` in order.
-- Blocks hold 25–48 entries (cut at 48, or at 25 or more once 1 KiB is reached). Entries
-  are prefix-compressed; every 16th entry is a restart point stored whole.
+- Blocks hold 32–64 entries (cut at 64, or at 32 or more once 1 KiB is reached). Entries
+  are prefix-compressed; every 32nd entry is a restart point stored whole.
 - A lookup is one `fst::floor_value` over the block index, a binary search over at most
-  three restart points, and at most 16 entry decodes that compare the target in place
+  two restart points, and at most 32 entry decodes that compare the target in place
   without rebuilding keys.
 - Every length and offset read from a block is bounds-checked; a violation throws
   `termdict::corrupt`. The FST index is validated when the reader is constructed.
@@ -28,7 +32,7 @@ term statistics and postings pointers. Header-only; depends on
 ```cpp
 #include "termdict.hh"
 
-termdict::builder b;
+termdict::builder b("aelpy");           // the keys' bytes
 b.add("apple", "\x01\x02");
 b.add("apply", "\x03");
 auto tables = b.finish();               // tables.blocks, tables.index

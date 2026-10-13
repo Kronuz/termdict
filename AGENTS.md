@@ -11,8 +11,11 @@ bench/bench.cc         Lookups against a hash map and a full FST on a vocabulary
 
 ## Invariants
 
-- Block format is fixed: [length][count][restarts][restart offsets][entries], LEB128 throughout.
-- Every 16th entry restarts (shared length 0); a block holds at most 48 entries.
+- Index format: [alphabet size, 0 for all 256][alphabet bytes, increasing][FST].
+- Block format: [length][count][restarts][restart offsets], then per restart run
+  [suffix bits length][suffix bits][entries], LEB128 throughout; entries hold lengths and
+  values, suffixes live in the run's bit stream (codes are alphabet ranks).
+- Every 32nd entry restarts (shared length 0); a block holds at most 64 entries.
 - Never read a length or offset from a block without checking it against the block's end.
 
 ## Verify a change

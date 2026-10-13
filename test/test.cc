@@ -18,14 +18,21 @@ static int failures = 0;
 
 using reference = std::map<std::string, std::string>;
 
-static termdict::tables build(const reference& ref) {
-	termdict::builder b;
+// The keys' alphabet half the time (coded suffixes), all 256 bytes otherwise.
+static termdict::tables build(const reference& ref, bool coded = true) {
+	std::string alphabet;
+	if (coded) {
+		for (const auto& [k, v] : ref) { alphabet += k; }
+		std::sort(alphabet.begin(), alphabet.end());
+		alphabet.erase(std::unique(alphabet.begin(), alphabet.end()), alphabet.end());
+	}
+	termdict::builder b(alphabet);
 	for (const auto& [k, v] : ref) { b.add(k, v); }
 	return b.finish();
 }
 
 static void check(const reference& ref, std::mt19937_64& rng, const std::string& alphabet, int probes) {
-	auto t = build(ref);
+	auto t = build(ref, rng() % 2);
 	termdict::reader r(t.blocks, t.index);
 	for (const auto& [k, v] : ref) {
 		auto got = r.find(k);
@@ -58,7 +65,9 @@ static void check(const reference& ref, std::mt19937_64& rng, const std::string&
 int main() {
 	std::mt19937_64 rng(42);
 	for (int round = 0; round < 200; ++round) {
-		std::string alphabet = round % 2 ? "ab" : "abcdefghijklmnopqrstuvwxyz";
+		static const char wide[] = "\x01\x7f\x80\xff" "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_-.";
+		const char* alphabets[] = {"ab", "abcdefghijklmnopqrstuvwxyz", "a"};
+		std::string alphabet = round % 4 == 3 ? std::string(wide, sizeof wide - 1) : alphabets[round % 3];
 		reference ref;
 		std::size_t n = rng() % 3000;
 		for (std::size_t i = 0; i < n; ++i) {
@@ -78,6 +87,26 @@ int main() {
 		std::size_t n = 0;
 		r.scan("", [&](std::string_view, std::string_view) { return ++n > 0; });
 		CHECK(n == 0);
+	}
+	// A key byte outside the alphabet is refused.
+	{
+		termdict::builder b("abc");
+		b.add("abc", "1");
+		bool threw = false;
+		try { b.add("abd", ""); } catch (const std::invalid_argument&) { threw = true; }
+		CHECK(threw);
+	}
+	// A malformed alphabet in the index (unsorted, or longer than the bytes) is corrupt.
+	{
+		reference ref{{"ab", "1"}, {"ba", "2"}};
+		auto t = build(ref);
+		for (std::string bad : {std::string("\x02" "ba") + t.index.substr(3), std::string("\x7f")}) {
+			bool threw = false;
+			try { termdict::reader r(t.blocks, bad); } catch (const termdict::corrupt&) { threw = true; }
+			CHECK(threw);
+		}
+		termdict::reader r(t.blocks, t.index);
+		CHECK(r.alphabet_bytes() == "ab" && r.find("ba") && *r.find("ba") == "2");
 	}
 	// Order is enforced.
 	{
@@ -144,7 +173,7 @@ int main() {
 	}
 	// Golden fixture.
 	{
-		termdict::builder b;
+		termdict::builder b("key0123456789");
 		for (int i = 0; i < 120; ++i) { b.add("key" + std::to_string(1000 + i), "v" + std::to_string(i * i)); }
 		auto t = b.finish();
 		std::string bytes = t.blocks + '\x00' + t.index;

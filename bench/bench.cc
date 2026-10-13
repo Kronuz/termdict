@@ -100,7 +100,11 @@ int main(int argc, char** argv) {
 	std::sort(keys.begin(), keys.end());
 	keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
 
-	termdict::builder b;
+	std::string alphabet;
+	for (const auto& k : keys) { alphabet += k; }
+	std::sort(alphabet.begin(), alphabet.end());
+	alphabet.erase(std::unique(alphabet.begin(), alphabet.end()), alphabet.end());
+	termdict::builder b(alphabet);
 	fst::builder fb;
 	for (std::size_t i = 0; i < keys.size(); ++i) {
 		char value[6];
