@@ -1,5 +1,6 @@
-// libFuzzer target: tables built from input-derived keys answer every lookup exactly,
-// and arbitrary bytes used as block data either answer or throw termdict::corrupt.
+// libFuzzer target: tables built from input-derived keys (over their own alphabet or all
+// 256 bytes) answer every lookup exactly, and arbitrary bytes used as block data either
+// answer or throw termdict::corrupt.
 #include "termdict.hh"
 
 #include <cstdlib>
@@ -16,7 +17,13 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 			start = i + 1;
 		}
 	}
-	termdict::builder b;
+	// The keys' own alphabet (coded suffixes) for odd-sized inputs, all 256 bytes otherwise.
+	std::string alphabet;
+	if (size % 2) {
+		for (const auto& [k, v] : keys) { alphabet += k; }
+		if (alphabet.empty()) { alphabet = "a"; }
+	}
+	termdict::builder b(alphabet);
 	for (const auto& [k, v] : keys) { b.add(k, v); }
 	auto t = b.finish();
 	termdict::reader r(t.blocks, t.index);
