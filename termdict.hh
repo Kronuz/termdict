@@ -215,9 +215,9 @@ struct alphabet {
 class block {
 public:
 	block(std::string_view bytes, std::uint64_t offset, const alphabet& a) : a_(&a) {
+		if (offset >= bytes.size()) { throw corrupt(); }  // before forming the pointer
 		const char* p = bytes.data() + offset;
 		const char* end = bytes.data() + bytes.size();
-		if (offset >= bytes.size()) { throw corrupt(); }
 		std::uint64_t length = 0;
 		if (!varint::leb128::decode(&p, end, length) || length > std::uint64_t(end - p)) { throw corrupt(); }
 		end_ = p + length;
