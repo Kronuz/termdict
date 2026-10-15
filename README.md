@@ -17,7 +17,8 @@ term statistics and postings pointers. Header-only; depends on
   `bit_width(size - 1)` bits wide, so codes sort as the bytes do. Lowercase terms take
   5 bits a byte. Each restart run stores its suffixes as one bit stream.
 - `termdict::reader(blocks, index)`: `find(key)` returns the value bytes or nothing;
-  `scan(from, f)` visits entries with keys `>= from` in order.
+  `scan(from, f)` visits entries with keys `>= from` in order; `reader::cursor` pulls
+  every entry in order, one block decoded at a time, for k-way merges of dictionaries.
 - Blocks hold 32–64 entries (cut at 64, or at 32 or more once 1 KiB is reached). Entries
   are prefix-compressed; every 32nd entry is a restart point stored whole.
 - A lookup is one `fst::floor_value` over the block index, a binary search over at most

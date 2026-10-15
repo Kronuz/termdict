@@ -38,6 +38,16 @@ static void check(const reference& ref, std::mt19937_64& rng, const std::string&
 		auto got = r.find(k);
 		CHECK(got && *got == v);
 	}
+	{
+		termdict::reader::cursor c(r);
+		auto w = ref.begin();
+		for (; c.next(); ++w) {
+			CHECK(w != ref.end());
+			if (w == ref.end()) { break; }
+			CHECK(c.key() == w->first && c.value() == w->second);
+		}
+		CHECK(w == ref.end() && !c.next());
+	}
 	auto random_key = [&] {
 		std::string k;
 		std::size_t n = rng() % 9;

@@ -492,6 +492,36 @@ public:
 		}
 	}
 
+	// Every entry in key order, pulled one at a time (a k-way merge of dictionaries).
+	// Holds one decoded block; neither copied nor moved, since its entry cursor points
+	// into that block.
+	class cursor {
+	public:
+		explicit cursor(const reader& r) : r_(&r) {}
+		cursor(const cursor&) = delete;
+		cursor& operator=(const cursor&) = delete;
+
+		// Moves to the next entry; false past the last.
+		bool next() {
+			for (;;) {
+				if (entry_ && entry_->next()) { return true; }
+				if (offset_ >= r_->blocks_.size()) { return false; }
+				entry_.reset();
+				block_.emplace(r_->open(offset_));
+				entry_.emplace(*block_, 0);
+				offset_ = block_->next_block();
+			}
+		}
+		std::string_view key() const noexcept { return entry_->key(); }
+		std::string_view value() const noexcept { return entry_->value(); }
+
+	private:
+		const reader* r_;
+		std::uint64_t offset_ = 0;
+		std::optional<block> block_;
+		std::optional<block::cursor> entry_;
+	};
+
 private:
 	// The block at offset, verified first when a verifier is set: its length prefix, then
 	// the whole block.
