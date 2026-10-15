@@ -61,6 +61,8 @@ inline constexpr std::size_t restart_interval = 32;
 inline constexpr std::size_t min_block_entries = 32;
 inline constexpr std::size_t max_block_entries = 64;
 inline constexpr std::size_t target_block_bytes = 1024;
+// The longest key: a block's first key is an index (fst) key.
+inline constexpr std::size_t max_key_bytes = fst::max_key_length;
 
 // Thrown when the bytes are not a well-formed dictionary; callers fence the data.
 struct corrupt : std::runtime_error {
@@ -90,6 +92,7 @@ public:
 
 	void add(std::string_view key, std::string_view value) {
 		if (count_ && key <= std::string_view(last_)) { throw std::invalid_argument("termdict: keys must be strictly increasing"); }
+		if (key.size() > max_key_bytes) { throw std::invalid_argument("termdict: key longer than max_key_bytes"); }
 		for (char c : key) {
 			if (code_[std::uint8_t(c)] < 0) { throw std::invalid_argument("termdict: key byte outside the alphabet"); }
 		}
@@ -250,7 +253,7 @@ public:
 		std::uint64_t more = 0;
 		if (!varint::leb128::decode(&p, end, shared)) { throw corrupt(); }
 		if (suffix == 15) {
-			if (!varint::leb128::decode(&p, end, more) || more > 1u << 30) { throw corrupt(); }
+			if (!varint::leb128::decode(&p, end, more) || more > max_key_bytes - 15) { throw corrupt(); }
 			suffix += more;
 		}
 		if (value == 15) {
@@ -269,7 +272,7 @@ public:
 			: a_(&a), bits_(bits), end_(end), size_(bytes * 8), mask_((1u << a.width) - 1), width_(a.width) {}
 		// Starts the next suffix of n symbols; throws when the run's bits do not hold it.
 		void start(std::uint64_t n) {
-			if (n * width_ > size_ - at_) { throw corrupt(); }  // n < 2^31 (header())
+			if (n * width_ > size_ - at_) { throw corrupt(); }  // n < 2^32 (header())
 		}
 		// Decodes the next n symbols into out (after start() has checked their bits): as many
 		// as one 64-bit load holds at a time.

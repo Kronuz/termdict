@@ -108,6 +108,24 @@ int main() {
 		termdict::reader r(t.blocks, t.index);
 		CHECK(r.alphabet_bytes() == "ab" && r.find("ba") && *r.find("ba") == "2");
 	}
+	// Long keys (past Lucene's and Tantivy's term limits) round-trip, sharing prefixes and
+	// not.
+	{
+		reference ref;
+		for (std::size_t len : {std::size_t(14), std::size_t(15), std::size_t(65531), std::size_t(1) << 20}) {
+			ref[std::string(len, 'a') + "b"] = "s" + std::to_string(len);
+			ref[std::string(len, 'c')] = "u" + std::to_string(len);
+		}
+		for (bool coded : {false, true}) {
+			auto t = build(ref, coded);
+			termdict::reader r(t.blocks, t.index);
+			for (const auto& [k, v] : ref) { CHECK(r.find(k) && *r.find(k) == v); }
+			std::size_t n = 0;
+			r.scan("", [&](std::string_view k, std::string_view v) { CHECK(ref.at(std::string(k)) == v); return ++n > 0; });
+			CHECK(n == ref.size());
+		}
+		static_assert(termdict::max_key_bytes == fst::max_key_length);
+	}
 	// Order is enforced.
 	{
 		termdict::builder b;
