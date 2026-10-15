@@ -1,5 +1,7 @@
 # termdict
 
+[![CI](https://github.com/Kronuz/termdict/actions/workflows/ci.yml/badge.svg)](https://github.com/Kronuz/termdict/actions/workflows/ci.yml)
+
 A block-tree sorted string table for C++20: sorted byte-string keys mapped to opaque
 value bytes, stored as prefix-compressed blocks with a small FST over each block's
 first key. It is the term dictionary of a search engine: keys are terms, values are
