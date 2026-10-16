@@ -1,6 +1,9 @@
 # termdict
 
 [![CI](https://github.com/Kronuz/termdict/actions/workflows/ci.yml/badge.svg)](https://github.com/Kronuz/termdict/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)
+![Header-only](https://img.shields.io/badge/header--only-yes-green.svg)
 
 A block-tree sorted string table for C++20: sorted byte-string keys mapped to opaque
 value bytes, stored as prefix-compressed blocks with a small FST over each block's
@@ -8,7 +11,9 @@ first key. It is the term dictionary of a search engine: keys are terms, values 
 term statistics and postings pointers. Header-only; depends on
 [fst](https://github.com/Kronuz/fst) and [varint](https://github.com/Kronuz/varint).
 
-## What it is
+![termdict: an FST over block first keys points into prefix-compressed blocks](docs/termdict.svg)
+
+## ✨ Highlights
 
 - `termdict::builder(alphabet)`: `add(key, value)` in strictly increasing key order;
   `finish()` returns two byte strings, the blocks and the index. `alphabet` names every
@@ -30,7 +35,23 @@ term statistics and postings pointers. Header-only; depends on
   on each block's bytes before reading them (its length prefix, then the whole
   block), for checksum verification on first use; a false return throws `corrupt`.
 
-## Usage
+## 📦 Installation
+
+Requires a C++20 compiler; CMake 3.14 or newer for the CMake route. CI builds it on
+Linux (x86_64, arm64), macOS (arm64, x86_64), and FreeBSD, plus ASan, UBSan, and TSan
+builds.
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(termdict
+  GIT_REPOSITORY https://github.com/Kronuz/termdict.git
+  GIT_TAG        main)
+FetchContent_MakeAvailable(termdict)
+
+target_link_libraries(my_app PRIVATE termdict::termdict)
+```
+
+## 🚀 Quick start
 
 ```cpp
 #include "termdict.hh"
@@ -45,7 +66,7 @@ auto v = r.find("apply");               // "\x03"
 r.scan("app", [](std::string_view key, std::string_view value) { return true; });
 ```
 
-## Performance
+## ⚡ Performance
 
 English Wikipedia vocabulary (3,964,752 terms), 6-byte values, Linux VM on an Intel
 i9-9980HK, Clang 18 `-O3`, against Lucene 10.4's `TermsEnum.seekExact` on the same terms
@@ -60,7 +81,7 @@ byte appended or the last byte changed.
 The tables take 12.35 bytes per key including the 6-byte values (blocks 48.0 MB, index
 0.9 MB).
 
-## Build and test
+## 🛠️ Building and testing
 
 ```sh
 cmake -S . -B build && cmake --build build && ctest --test-dir build
@@ -72,6 +93,20 @@ long values that force small blocks) and the system dictionary, reject unsorted 
 query every truncation and 20,000 random corruptions, and compare a golden fixture.
 `fuzz/fuzz_reader.cc` is a libFuzzer target.
 
-## License
+## 🎯 When to use it
 
-MIT. See [LICENSE](LICENSE).
+- ✅ A sorted, immutable key-to-bytes table with ordered scans from any key.
+- ❌ Mutable maps: build once, then read.
+
+## 📚 Documentation
+
+- [AGENTS.md](AGENTS.md): repository map and invariants.
+
+## 🤝 Contributing
+
+Issues and pull requests are welcome. Read [AGENTS.md](AGENTS.md) first. CI must
+pass on every platform.
+
+## 📄 License
+
+MIT, Copyright (c) 2026 Germán Méndez Bravo. See [LICENSE](LICENSE).

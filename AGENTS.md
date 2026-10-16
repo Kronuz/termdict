@@ -7,6 +7,7 @@ termdict.hh            builder, block (bounds-checked decoding), reader (find, s
 test/test.cc           std::map comparisons, corruption, golden fixture.
 fuzz/fuzz_reader.cc    libFuzzer: built tables answer exactly; junk block bytes throw corrupt or answer.
 bench/bench.cc         Lookups against a hash map and a full FST on a vocabulary file.
+docs/termdict.d2     README diagram; render: d2 --layout elk --sketch --theme 302 docs/termdict.d2 docs/termdict.svg
 ```
 
 ## Invariants
