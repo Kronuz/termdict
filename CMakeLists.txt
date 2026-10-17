@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.14)
 project(termdict LANGUAGES CXX)
 
 include(FetchContent)
-FetchContent_Declare(fst GIT_REPOSITORY https://github.com/Kronuz/fst.git GIT_TAG f8122e23e8864ecb77b31c7c9654e2a54554e236)
-FetchContent_Declare(varint GIT_REPOSITORY https://github.com/Kronuz/varint.git GIT_TAG de3d05dbec86cd4c147b3177947f9c3b58312675)
+FetchContent_Declare(fst GIT_REPOSITORY https://github.com/Kronuz/fst.git GIT_TAG 24da59a9e3d7225865335dcdc71ddeb2e1cb66ec)
+FetchContent_Declare(varint GIT_REPOSITORY https://github.com/Kronuz/varint.git GIT_TAG 21af82a64fd5860d14d5ec9591bec2ffd5d662d1)
 FetchContent_MakeAvailable(fst varint)
 
 # Header-only: termdict.hh is the whole implementation.
