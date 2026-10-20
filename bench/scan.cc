@@ -6,6 +6,8 @@
 //   walk10_ns   the same through reader::scan(from), which builds the floor block's keys
 //   find_ns / absent_ns  find() of present and absent keys
 // Each figure is the median of REPS repetitions; build twice (two termdict.hh) for an A/B.
+// TERMDICT_BENCH_BYTES=1 builds over all 256 bytes (byte-coded suffixes) instead of the
+// keys' alphabet.
 //   termdict_scan_bench [VOCABULARY [KV_KEYS [REPS [ONLY]]]]  (ONLY: one measurement, for profiling)
 #include "termdict.hh"
 
@@ -53,7 +55,7 @@ struct dataset {
 
 void build(dataset& d) {
 	std::string alphabet;
-	{
+	if (!std::getenv("TERMDICT_BENCH_BYTES")) {  // set: all 256 bytes, suffixes byte-coded
 		bool used[256] = {};
 		for (const auto& k : d.keys) {
 			for (char c : k) { used[std::uint8_t(c)] = true; }

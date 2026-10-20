@@ -355,7 +355,14 @@ public:
 			at_ += n * W;
 			if constexpr (W == 8) {
 				if (a_->size == 256) {  // codes are the bytes, whole bytes apart
-					std::memcpy(out, bits_ + (at >> 3), n);
+					const char* const from = bits_ + (at >> 3);
+					if constexpr (Padded) {
+						if (n <= padding && end_ - from >= std::ptrdiff_t(padding)) {
+							std::memcpy(out, from, padding);  // a fixed size: two moves, no call
+							return;
+						}
+					}
+					std::memcpy(out, from, n);
 					return;
 				}
 			}
