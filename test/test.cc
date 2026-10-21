@@ -1,14 +1,28 @@
 // termdict: find and scan against std::map on random and dictionary key sets, block
-// boundaries and restarts, corrupt input, and a golden fixture.
-#include "termdict.hh"
-
+// boundaries and restarts, corrupt input (truncation and byte-flip sweeps in exact-size heap
+// blocks), the suffix decoder against a bit-unpacking oracle, and a golden fixture.
 #include <algorithm>
-
+#include <array>
+#include <bit>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <random>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "fst.hh"
+#include "varint.hh"
+// The decode sweep drives block::suffixes directly.
+#define private public
+#include "termdict.hh"
+#undef private
 
 static int failures = 0;
 #define CHECK(cond) \
@@ -131,6 +145,110 @@ static void check_seek(const std::vector<std::string>& keys, bool coded) {
 	// Backward and forward from the end.
 	CHECK(!c.seek(keys.back() + "\xff") && !c.next());
 	CHECK(c.seek(keys.front()) && c.key() == ref.begin()->first);
+}
+
+
+// Runs fn over a copy of bytes in an exact-size heap block, so ASan sees any read past its end.
+template <class F>
+static void on_exact(std::string_view bytes, F&& fn) {
+	char* m = static_cast<char*>(std::malloc(bytes.size() ? bytes.size() : 1));
+	std::memcpy(m, bytes.data(), bytes.size());
+	try { fn(std::string_view(m, bytes.size())); } catch (const termdict::corrupt&) {}
+	std::free(m);
+}
+
+// Drives cursor next/seek, scan and find over bytes; only termdict::corrupt may escape.
+static void drive(std::string_view bytes, const std::string& index, const std::vector<std::string>& probes) {
+	termdict::reader r(bytes, index);
+	{ termdict::reader::cursor c(r); try { while (c.next()) { (void)c.key(); (void)c.value(); } } catch (const termdict::corrupt&) {} }
+	for (const auto& p : probes) {
+		try { termdict::reader::cursor c(r); if (c.seek(p)) { for (int s = 0; s < 40 && c.next(); ++s) { (void)c.key(); } } } catch (const termdict::corrupt&) {}
+		try { int n = 0; r.scan(p, [&](std::string_view, std::string_view) { return ++n < 40; }); } catch (const termdict::corrupt&) {}
+		try { (void)r.find(p); } catch (const termdict::corrupt&) {}
+	}
+}
+
+// Every truncation length and random byte flips of several dictionaries, in exact-size heap blocks.
+static void sweep_corruption(std::mt19937_64& rng) {
+	for (int d = 0; d < 6; ++d) {
+		reference ref;
+		const std::string alpha = d % 2 ? "abcdefghijklmnopqrstuvwxyz0123456789" : "abc";
+		const int n = d < 2 ? 40 : 120;
+		for (int i = 0; i < n; ++i) {
+			std::string k;
+			for (std::size_t j = 1 + rng() % 12; j; --j) { k.push_back(alpha[rng() % alpha.size()]); }
+			ref[k] = std::string(rng() % 6, 'v') + std::to_string(i);
+		}
+		auto t = build(ref, d < 4);
+		std::vector<std::string> probes{"", "a", std::string(1, '\xff')};
+		auto it = ref.begin();
+		for (std::size_t i = 0; i < ref.size(); i += 1 + ref.size() / 6, it = std::next(ref.begin(), std::ptrdiff_t(i % ref.size()))) { probes.push_back(it->first); probes.push_back(it->first + '\0'); }
+		for (std::size_t len = 0; len <= t.blocks.size(); ++len) {
+			on_exact(std::string_view(t.blocks).substr(0, len), [&](std::string_view b) { drive(b, t.index, probes); });
+		}
+		for (int m = 0; m < 200 && !t.blocks.empty(); ++m) {
+			std::string bad = t.blocks;
+			for (int f = 1 + int(rng() % 4); f; --f) { bad[rng() % bad.size()] = char(rng()); }
+			if (rng() % 4 == 0) { bad.resize(rng() % bad.size()); }
+			on_exact(bad, [&](std::string_view b) { drive(b, t.index, probes); });
+		}
+	}
+}
+
+// decode and decode_padded against a bit-unpacking oracle, every width and every alphabet size
+// with that width, exact-size heap source and destination, garbage past the suffix.
+static void sweep_decode(std::mt19937_64& rng) {
+	for (unsigned W = 1; W <= 8; ++W) {
+		std::vector<unsigned> sizes;
+		if (W == 1) { sizes = {1, 2}; } else { for (unsigned s = (1u << (W - 1)) + 1; s <= (1u << W); ++s) { sizes.push_back(s); } }
+		for (unsigned size : sizes) {
+			termdict::alphabet a;
+			a.size = size;
+			a.width = W;
+			for (unsigned i = 0; i < 256; ++i) { a.symbol[i] = char(size == 256 ? i : i < size ? (i * 5 + 1) : 0); }
+			CHECK(std::bit_width(size - 1) == int(W) || size == 1);
+			for (int it = 0; it < 400; ++it) {
+				const unsigned pre = rng() % 11, n = rng() % 50;
+				const std::size_t bytes = ((pre + n) * W + 7) / 8;
+				const std::size_t total = bytes + (rng() % 3 == 0 ? rng() % 20 : 0);
+				char* src = static_cast<char*>(std::malloc(total ? total : 1));
+				for (std::size_t i = 0; i < total; ++i) { src[i] = char(rng()); }
+				auto put = [&](std::size_t sym, unsigned code) {
+					for (unsigned b = 0; b < W; ++b) {
+						const std::size_t bit = sym * W + b;
+						src[bit / 8] = char((code >> b) & 1 ? src[bit / 8] | (1 << (bit % 8)) : src[bit / 8] & ~(1 << (bit % 8)));
+					}
+				};
+				std::vector<unsigned> codes(n);
+				bool invalid = false;
+				for (unsigned i = 0; i < n; ++i) {
+					unsigned c = rng() % size;
+					if (size < (1u << W) && rng() % 32 == 0) { c = size + rng() % ((1u << W) - size); invalid = true; }
+					codes[i] = c;
+					put(pre + i, c);
+				}
+				for (unsigned i = 0; i < pre; ++i) { put(i, rng() % (1u << W)); }
+				for (int padded = 0; padded < 2; ++padded) {
+					termdict::block::suffixes s(a, src, bytes, src + total);
+					s.skip(pre);
+					s.start(n);
+					const std::size_t cap = n + (padded ? 16 : 0);
+					char* out = static_cast<char*>(std::malloc(cap ? cap : 1));
+					std::memset(out, 0x5a, cap);
+					bool threw = false;
+					try { if (padded) { s.decode_padded(n, out); } else { s.decode(n, out); } } catch (const termdict::corrupt&) { threw = true; }
+					CHECK(threw == invalid);
+					if (!threw) {
+						for (unsigned i = 0; i < n; ++i) { if (out[i] != a.symbol[codes[i]]) { CHECK(!"decoded symbol"); break; } }
+						if (!padded) { for (std::size_t i = n; i < cap; ++i) { CHECK(out[i] == 0x5a); } }
+						CHECK(s.at_ == std::uint64_t(pre + n) * W);
+					}
+					std::free(out);
+				}
+				std::free(src);
+			}
+		}
+	}
 }
 
 int main() {
@@ -321,6 +439,8 @@ int main() {
 			}
 		}
 	}
+	sweep_corruption(rng);
+	sweep_decode(rng);
 	// Golden fixture.
 	{
 		termdict::builder b("key0123456789");
