@@ -191,6 +191,7 @@ static void check_forward(const std::vector<std::string>& keys, bool coded) {
 	// Seeks to target from the entry at s; true when it landed inside the block ending at last.
 	auto probe = [&](std::size_t s, const std::string& target, std::size_t last) {
 		CHECK(c.seek(keys[s]) && c.key() == keys[s]);
+		c.tried_ = true;  // the first forward attempt in a block only marks it
 		const std::size_t before = verifies;
 		const auto w = std::lower_bound(keys.begin(), keys.end(), target);
 		const bool found = c.seek(target);
@@ -228,6 +229,18 @@ static void check_forward(const std::vector<std::string>& keys, bool coded) {
 			probe(s, "", last);
 			probe(s, keys[s], last);  // equal to the current key
 		}
+	}
+	// A block's first forward attempt only marks it (falls back to the index); later ones hit.
+	for (std::size_t b = 0; b + 1 < first.size(); ++b) {
+		const std::size_t f = first[b];
+		if (first[b + 1] - f < 4) { continue; }
+		CHECK(c.seek("") && c.seek(keys[f]) && c.key() == keys[f]);
+		std::size_t before = verifies;
+		CHECK(c.seek(keys[f + 1]) && c.key() == keys[f + 1]);
+		CHECK(verifies != before);
+		before = verifies;
+		CHECK(c.seek(keys[f + 2]) && c.key() == keys[f + 2]);
+		CHECK(verifies == before);
 	}
 	// A failed seek leaves the cursor past the end, not on a stale entry.
 	for (std::size_t j : {std::size_t(0), std::size_t(1), keys.size() / 2, keys.size() - 1}) {

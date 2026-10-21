@@ -722,6 +722,12 @@ public:
 			if (c < 0) { return false; }
 			if (c == 0) { return true; }
 			if (!last_known_) {
+				// A block's first attempt only marks it: decoding its last key pays off when
+				// seeks keep landing here, not after a random seek opened it.
+				if (!tried_) {
+					tried_ = true;
+					return false;
+				}
 				b.last_key(last_);
 				last_known_ = true;
 			}
@@ -748,11 +754,13 @@ public:
 		}
 
 		void open(std::uint64_t offset) {
+			// The same block again keeps what forward seeks learned about it.
+			if (!block_ || offset != offset_) { last_known_ = tried_ = false; }
+			offset_ = offset;
 			block_.emplace(r_->open(offset));
 			at_ = {};
 			count_ = block_->count();
 			next_ = block_->next_block();
-			last_known_ = false;
 		}
 
 		const reader* r_;
@@ -761,8 +769,10 @@ public:
 		std::size_t count_ = 0;  // the open block's entries
 		std::size_t size_ = 0;   // the key's length; key_ holds it, padded, and never shrinks
 		std::uint64_t next_ = 0;  // the next block's offset
+		std::uint64_t offset_ = 0;  // the open block's offset
 		bool on_entry_ = false;   // key_ is the cursor's current entry (seek and next returned true)
 		bool last_known_ = false;  // last_ is the open block's last key
+		bool tried_ = false;       // a forward seek has already looked at the open block
 		std::string last_;
 		std::vector<char> key_;
 		std::string_view value_;
