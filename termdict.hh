@@ -715,9 +715,14 @@ public:
 		// A seek to from at or above the current key and at or below the open block's last
 		// key: searches the block's later restart runs, or finishes the current run, without
 		// the index lookup. False (cursor untouched) when from sorts past the block's last
-		// key; one comparison against the cached last key decides.
+		// key; one comparison against the cached last key decides. Only called while
+		// on_entry_ holds: next() and seek() clear it before decoding and set it after, so
+		// the key is current and at_.index is past the entry (never 0).
 		bool forward(std::string_view from) {
 			const block& b = *block_;
+			// Two runs at most: a landing run past the current one is the block's last, so
+			// walk_to cannot miss once from <= the last key.
+			static_assert(max_block_entries <= 2 * restart_interval);
 			const int c = from.compare(std::string_view(key_.data(), size_));
 			if (c < 0) { return false; }
 			if (c == 0) { return true; }
@@ -754,10 +759,12 @@ public:
 		}
 
 		void open(std::uint64_t offset) {
-			// The same block again keeps what forward seeks learned about it.
-			if (!block_ || offset != offset_) { last_known_ = tried_ = false; }
-			offset_ = offset;
+			// The same block again keeps what forward seeks learned about it; a rejected open
+			// (it throws) leaves the old block and its marks as they were.
+			const bool same = block_ && offset == offset_;
 			block_.emplace(r_->open(offset));
+			if (!same) { last_known_ = tried_ = false; }
+			offset_ = offset;
 			at_ = {};
 			count_ = block_->count();
 			next_ = block_->next_block();
