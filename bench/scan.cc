@@ -3,6 +3,7 @@
 // (one term per line, 6-byte values, as prospect's term infos). Per set, one JSON line:
 //   keyscan_ns  a full reader::cursor walk, per key
 //   seek10_ns   cursor::seek to a present or absent key, then 10 next(), per seek
+//   fseek_ns    cursor::seek to the key 1 to 300 entries past the last seek, per seek
 //   walk10_ns   the same through reader::scan(from), which builds the floor block's keys
 //   find_ns / absent_ns  find() of present and absent keys
 // Each figure is the median of REPS repetitions; build twice (two termdict.hh) for an A/B.
@@ -95,6 +96,13 @@ void run(dataset& d, int reps, std::string_view only) {
 	for (std::size_t i = 0; i < 100000; ++i) { gone.push_back(d.absent[rng() % d.absent.size()]); }
 	std::vector<std::string_view> targets;  // seeks: half present, half absent
 	for (std::size_t i = 0; i < 100000; ++i) { targets.push_back(i % 2 ? probes[i] : gone[i]); }
+	// Forward seeks: each target 1 to 300 entries past the last, a sweep per pass.
+	std::vector<std::string_view> fwd;
+	std::vector<std::size_t> passes;  // each sweep's first index in fwd
+	for (int pass = 0; pass < 8; ++pass) {
+		passes.push_back(fwd.size());
+		for (std::size_t i = 0; i < n; i += 1 + rng() % 300) { fwd.push_back(d.keys[i]); }
+	}
 
 	// Correctness first: the walk returns every key, a seek lands on lower_bound.
 	{
@@ -112,6 +120,14 @@ void run(dataset& d, int reps, std::string_view only) {
 			const auto it = std::lower_bound(d.keys.begin(), d.keys.end(), targets[i]);
 			const bool ok = c.seek(targets[i]);
 			if (ok != (it != d.keys.end()) || (ok && c.key() != *it)) { std::fprintf(stderr, "seek wrong at %zu\n", i); std::exit(1); }
+		}
+		for (std::size_t p = 0; p < passes.size(); ++p) {
+			Cursor c(r);
+			const std::size_t end = p + 1 < passes.size() ? passes[p + 1] : fwd.size();
+			for (std::size_t i = passes[p]; i < end; ++i) {
+				const auto it = std::lower_bound(d.keys.begin(), d.keys.end(), fwd[i]);
+				if (!c.seek(fwd[i]) || c.key() != *it) { std::fprintf(stderr, "forward seek wrong at %zu\n", i); std::exit(1); }
+			}
 		}
 	}
 
@@ -139,6 +155,21 @@ void run(dataset& d, int reps, std::string_view only) {
 			const double t = ns(t0);
 			sink = sink + s;
 			return t / double(targets.size());
+		});
+	}
+	double fseek = 0;
+	if constexpr (seekable<Cursor>) {
+		if (want("fseek")) fseek = median_of(reps, [&] {
+			std::uint64_t s = 0;
+			const auto t0 = clk::now();
+			for (std::size_t p = 0; p < passes.size(); ++p) {
+				Cursor c(r);
+				const std::size_t end = p + 1 < passes.size() ? passes[p + 1] : fwd.size();
+				for (std::size_t i = passes[p]; i < end; ++i) { s += c.seek(fwd[i]) ? c.key().size() : 0; }
+			}
+			const double t = ns(t0);
+			sink = sink + s;
+			return t / double(fwd.size());
 		});
 	}
 	const double walk10 = !want("walk10") ? 0 : median_of(reps, [&] {
@@ -171,8 +202,8 @@ void run(dataset& d, int reps, std::string_view only) {
 		sink = sink + s;
 		return t / double(gone.size());
 	});
-	std::printf("{\"set\":\"%s\",\"keys\":%zu,\"bytes_per_key\":%.3f,\"keyscan_ns\":%.2f,\"seek10_ns\":%.1f,\"walk10_ns\":%.1f,\"find_ns\":%.1f,\"absent_ns\":%.1f}\n", d.name, n,
-		double(d.t.blocks.size() + d.t.index.size()) / double(n), keyscan, seek10, walk10, find, absent);
+	std::printf("{\"set\":\"%s\",\"keys\":%zu,\"bytes_per_key\":%.3f,\"keyscan_ns\":%.2f,\"seek10_ns\":%.1f,\"fseek_ns\":%.1f,\"walk10_ns\":%.1f,\"find_ns\":%.1f,\"absent_ns\":%.1f}\n", d.name, n,
+		double(d.t.blocks.size() + d.t.index.size()) / double(n), keyscan, seek10, fseek, walk10, find, absent);
 	std::fflush(stdout);
 }
 

@@ -635,6 +635,7 @@ public:
 				open(next_);
 			}
 			size_ = block_->step<true>(at_, key_, size_, value_);
+			positioned_ = true;
 			return true;
 		}
 		// Moves to the first entry with key >= from, from any position; false when there is
@@ -642,12 +643,16 @@ public:
 		// one index lookup, a binary search of the run starts, and one run walked without
 		// building keys.
 		bool seek(std::string_view from) {
+			if (positioned_ && from >= key()) {
+				if (const auto found = seek_within(from)) { return *found; }
+			}
 			const auto offset = r_->index_.floor_value(from);
 			if (!offset) {  // from sorts before every key
 				block_.reset();
 				at_ = {};
 				count_ = 0;
 				next_ = 0;
+				positioned_ = false;
 				return next();
 			}
 			open(*offset);
@@ -657,14 +662,8 @@ public:
 				const std::size_t mid = (lo + hi) / 2;
 				if (b.compare_restart(mid, from) <= 0) { lo = mid; } else { hi = mid; }
 			}
-			block::landing l;
-			if (!b.walk_to(lo, from, [](std::string_view) {}, l)) {
-				at_.index = std::min(count_, (lo + 1) * restart_interval);  // the next run's first entry
-				return next();
-			}
-			size_ = b.land(l, from, key_, at_);
-			value_ = l.value;
-			return true;
+			if (const auto found = land_in(lo, from)) { return *found; }
+			return next();  // past the block's last run: the next block's first entry
 		}
 
 		std::string_view key() const noexcept { return {key_.data(), size_}; }
@@ -676,12 +675,45 @@ public:
 			at_ = {};
 			count_ = block_->count();
 			next_ = block_->next_block();
+			positioned_ = false;
+		}
+
+		// Lands on from inside run lo (the last run starting at or below from). When run lo has
+		// none at or above from, moves to the next run's first entry; empty only when lo is the
+		// block's last run, where the answer depends on the next block.
+		std::optional<bool> land_in(std::size_t lo, std::string_view from) {
+			const block& b = *block_;
+			block::landing l;
+			if (!b.walk_to(lo, from, [](std::string_view) {}, l)) {
+				at_.index = std::min(count_, (lo + 1) * restart_interval);
+				positioned_ = false;
+				if (lo + 1 == b.restarts()) { return std::nullopt; }
+				return next();
+			}
+			size_ = b.land(l, from, key_, at_);
+			value_ = l.value;
+			positioned_ = true;
+			return true;
+		}
+
+		// from is at or past key() in the open block: the answer is in this block when it sorts
+		// before the block's last key, found by a search of the runs from key's run on. Empty
+		// when that is not known without the index (the walk runs out in the block's last run).
+		std::optional<bool> seek_within(std::string_view from) {
+			const block& b = *block_;
+			std::size_t lo = (at_.index - 1) / restart_interval, hi = b.restarts();
+			while (hi - lo > 1) {
+				const std::size_t mid = (lo + hi) / 2;
+				if (b.compare_restart(mid, from) <= 0) { lo = mid; } else { hi = mid; }
+			}
+			return land_in(lo, from);
 		}
 
 		const reader* r_;
 		std::optional<block> block_;
 		block::position at_;
 		std::size_t count_ = 0;  // the open block's entries
+		bool positioned_ = false;  // key_ is an entry of the open block (set by next() or seek())
 		std::size_t size_ = 0;   // the key's length; key_ holds it, padded, and never shrinks
 		std::uint64_t next_ = 0;  // the next block's offset
 		std::vector<char> key_;
