@@ -1,0 +1,34 @@
+INFO: Running, 0x10abdd809), 
+INFO: Loaded 1 PC tables (2817 PCs): 2817 [0x10abdd810,0x10abe8820), 
+INFO:        3 files found in /Users/kronuz/code/Kronuz/termdict/.scratch/fuzz-reader/work
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: firss: 34Mb L: 78/487 MS: 1 ShuffleBytes-
+#7	NEW    cov: 600 ft: 1007 corp: 5/1311b lim: 487 exec/s: 0 rss: 34Mb L: 260/487 MS: 2 ChangeBit-EraseBytes-
+#8	NEW    cov: 600 ft: 1011 corp: 6/1489b lim: 487 exec/s: 0 rss: 34Mb L: 178/487 MS: 1 Cr/ssOver-
+#9	NEW    cov: 618 ft: 1040 corp: 7/1584b lim: 487 exec/s: 0 rss: 34Mb L: 95/487 MS: 1 CopyPart-
+#15	NEW    cov: 618 ft: 1047 corp: 8/1729b lim: 487 exec/s: 0 rss: 34Mb L: 145/487 MS: 1 CopyPart-
+#17	NEW    cov: 618 ft: 1053 corp: 9/1807b lim: 487 exec/s: 0 rss: 34Mb L: 78/487 MS: 2 ShuffleBytes-ChangeByte-
+#19	NEW    cov: 619 ft: 1059 corp: 10/1902b lim: 487 exec/s: 0 rss: 34Mb L: 95/487 MS: 2 ChangeBinInt-CMP- DE: "5\325\000\000@`\000\000"-
+#20	NEW    cov: 619 ft: 1066 corp: 11/1997b lim: 487 exec/s: 0 rss: 34Mb L: 95/487 MS: 1 CopyPart-
+#21	NEW    cov: 620 ft: 1122 corp: 12/2458b lim: 487 exec/s: 0 rss: 34Mb L: 461/487 MS: 1 InsertRepeatedBytes-
+	NEW_FUNC[1/1]: 0x00010ab91198 in void std::__1::__tree_left_rotate[abi:nqe230102]<std::__1::__tree_node_base<void*>*>(std::__1::__tree_node_base<void*>*)+0x0 (termdict_fuzz:x86_64+0x100033198)
+#22	NEW    cov: 624 ft: 1184 corp: 13/2859b lim: 487 exec/s: 0 rss: 36Mb L: 401/487 MS: 1 EraseBytes-
+	NEW_FUNC[1/19]: 0x00010ab68e10 in std::__1::vector<fst::builder::pending, std::__1::allocator<fd 1 PC tables (2817 PCs): 2817 [0x10abdd810,0x10abe8820), 
+INFO:        3 files foundNFO: Loaded 1 PC tables (2817 PCs): 2817 [0x10abdd810,0x10abe8820), 
+INFO:        3 files found in /Users/kronuz/code/Kronuz/termdict/.scratch/fuzz-reader/work
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: firss: 34Mb L: 78/487 MS: 1 ShuffleBytes-
+#7	NEW    cov: 600 ft: 1007 corp: 5/1311b lim: 487 exec/s: 0 rss: 34Mb L: 260/487 MS: 2 ChangeBit-EraseBytes-
+#8	NEW    cov: 600 ft: 1011 corp: 6/1489b lim: 487 exec/s: 0 rss: 34Mb L: 178/487 MS: 1 CrossOver-
+#9	NEW    cov: 618 ft: 1040 corp: 7/1584b lim: 487 exec/s: 0 rss: 34Mb L: 95/487 MS: 1 CopyPart-
+#15	NEW    cov: 618 ft: 1047 corp: 8/1729b lim: 487 exec/s: 0 rss: 34Mb L: 145/487 MS: 1 CopyPart-
+#17	NEW    cov: 618 ft: 1053 corp: 9/1807b lim: 487 exec/s: 0 rss: 34Mb L: 78/487 MS: 2 ShuffleBytes-ChangeByte-
+#19	NEW    cov: 619 ft: 1059 corp: 10/1902b lim: 487 exec/s: 0 rss: 34Mb L: 95/487 MS: 2 ChangeBinInt-CMP- DE: "5\325\000\000@`\000\000"-
+#20	NEW    cov: 619 ft: 1066 corp: 11/1997b lim: 487 exec/s: 0 rss: 34Mb L: 95/487 MS: 1 CopyPart-
+#21	NEW    cov: 620 ft: 1122 corp: 12/2458b lim: 487 exec/s: 0 rss: 34Mb L: 461/487 MS: 1 InsertRepeatedBytes-
+	NEW_FUNC[1/1]: 0x00010ab91198 in void std::__1::__tree_left_rotate[abi:nqe230102]<std::__1::__tree_node_base<void*>*>(std::__1::__tree_node_base<void*>*)+0x0 (termdict_fuzz:x86_64+0x100033198)
+#22	NEW    cov: 624 ft: 1184 corp: 13/2859b lim: 487 exec/s: 0 rss: 36Mb L: 401/487 MS: 1 EraseBytes-
+	NEW_FUNC[1/19]: 0x00010ab68e10 in std::__1::vector<fst::builder::pending, std::__1::allocator<fd 1 PC tables (2817 PCs): 2817 [0x10abdd810,0x10abe8820), 
+INFO:        3 files found in /Users/kronuz/code/Kronuz/termdict/.scratch/fuzz-reader/work
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 3 min: -8b max: 408b total: 723b im: 487 exec/s: 0 rss: 37Mb L: 402/48

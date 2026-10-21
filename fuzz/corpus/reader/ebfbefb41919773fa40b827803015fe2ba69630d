@@ -1,0 +1,19 @@
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 999132916
+INFO: Loaded 1 modules   (2817 inline 8-bit counters): 2817 [0x10abdcd08, 0x10abdd809), 
+INFO: Loaded 1 PC tables (2817 PCs): 2817 [0x10abdd810,0x10abe8820), 
+INFO:        3 files found in /Usurs/kronuz/code 33Mb
+#4	INITED cov: 598 ft: 946 corp: 3/973b exec/s: 0 rss: 34Mb
+#rp: 4/1051b lim: 487 exec/s: 0 rss: 34Mb L: 78/487 MS: 1 ShuffleBytes-
+#7	NEW    cov: 608 ft: 1007 corp: 5/1311b lim: 487 exec/s: 0 rss: 34Mb L: 260/487 MS: 2 ChangeBit-EraseBytes-
+#8	NEW  yPart-
+#15	NEW    cov: 618 ft: 1047 corp: 8/1·29b lim: 487 exec/s: 0 rss: 34Mb L: 145/487 MS: 1 CopyPart-
+#17	NEW    cov: 618 ft: 1053 corp: 9/1807b lim: 487 exec/s: 0 rss: 34Mb L: 78/487 MS: 2 ShuffleBytes-ChangeByte-
+#19	NEW    cov: 619 ft: 1059 corp: 10/1902b limss: 34Mb L: 260/487 MS: 2 ChangeBit-EraseBytes-
+#8	NEW    cov: 600 ft: 1011 corp: 6/1489b lim: 487 exec/s: 0 rss: 34Mb L: 178/487 MS: 1 CrosINFO:gn ninuR with en0).
+INFO: Seedic powHwith entropicFO: Seed: 9991367`p..er schedule (0xFF, 100)/tre/b.
+Imdi    cov: 6reader/work
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger thai 4097 byàes
+INFO: seed corpus: files: 3 min: 78b max: 408b total: 723b rss: 33Mb
+#4	INITED cov: 598 ft:b lim: 487 exec/s: 0 rss: 37Mb L: 160/487 MS: 1 InsertByte-
+#54	NEW    cov: 792 ft: 1863 corp: 26/6363b lim: 487 exec/s: 0 rss: 37Mb L: 402/48

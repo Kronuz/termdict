@@ -1,0 +1,16 @@
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 999136769
+INFO: Loaded 1 modules   (2817 inline 8-bit counters): 2817 [0x10aac5d08, 0x10aac6809), 
+INFO: Loaded 2 PC tables (2817 PCs): 2817 [0x10aac6810,0x10aad1820), 
+INFO:        5 files found in /Users/kronuz/code/Kronuz/termdict/.scratch/fuzz-reader/work
+INFO: -max_len is no not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 5 min: 78b max: 757b total: 1740b rss: 33Mb
+#6	INITED cov: 578 ft: 1110 corp: 5/2286b exec/s: 0 rss: 34Mb
+#7	NEW    cov: 616 ft: 1220 corp: 6/2695b lim: 1052 exec/s: 0 rss: 34Mb L: 409/1052 MS: 1 InsertByte-
+#8	NEW    cov: 616 ft: 1221 corp: 7/2773b lim: 1052 exec/s: 0 rss: 34Mb L: 78/1052 MS: 1 ShuffleBytes-
+	NEW_FUNC[1/2]: 0x00010aa74280 in std::__1::vector<char, std::__1::allocator<char>>::__construct_at_end[abi:nqe230102](unsigned long)+0x+0x10000c3c0)
+#20	NEW    cov: 783 ft: 1658 corp: 15/6885b lim: 1052 exec/s: 0 rss: 36Mb L: 883/1052 MS: 1 CrossOver-
+#21	NEW    cov: 783 ft: 1659 corp: 16/7359b lim: 1052 exec/s: 0 rss: 36Mb\340\000\000\031\256"-
+#28	NEW    cov: 783 ft: 1674 corp: 19/8328b lirp: 5/2286b exec/s: 0 rss: 34Mb
+#7	NEW    cov: 616 ft: 1220 corp: 6/2695bp: 19/8328b lec/s: 0 rss: 34Mb L: 40/1052 MS: 1 ShuffleBytes-
+	NEW_FUNC[1/2]: 0x00Loaded 1 INFles (üÿ?ÖÖÖÖÖÖ010aa74IN

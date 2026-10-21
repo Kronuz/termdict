@@ -1,0 +1,32 @@
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 999132916
+INFO: Loaded 1 modules   (2817 inline 8-bit counters): 2817 [0x10abdcd08, 0x10abdd809), 
+INFO: Loaded 1 PC tables (2817 PCs): 2817 [0x10abdd810,0x10abe8820), 
+INFO:        3 files found in /Users/kronuz/code/Kronuz/termdict/.scratch/fuzz-reader/work
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 3 min: 78b max: 408b total: 723b rss: 33Mb
+#4	INITED cov: 598 ft: 946 corp: 3/973b exec/s: 0 rss: 34Mb
+#5	NEW    cov: 600 ft: 991 corp: 4/1051b lim: 487 exec/s: 0 rss: 34Mb L: 78/487 MS: 1 ShuffleBytes-
+#7	NEW    cov: 600 ft: 1007 corp: 5/1311b lim: 487 exec/s: 0 rss: 34Mb L: 260/487 MS: 2 ChangeBit-EraseBytes-
+#8	NEW    cov: 600 ft: 1011 corp: 6/1489b lim: 487 exec/s: 0 rss: 34Mb L: 178 8-bit counters): 2817 [0x10abdcd08, 0x10abdd809), 
+INFO: Loaded 1 PC tables (2817 PCs): 2817 [0x10abdd810,0x10abe8820), 
+INFO:        3 files found in /Users/kronuz/code/Kronuz/termdict/.scratch/fuzz-reader/work
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 3 min: 78b max: 408b total: 723b rss: 33Mb
+#4	INITED cov: 598 ft: 946 corp: 3/973b exec/s: 0 rss: 34Mb
+#5	NEW    cov: 600 ft: 991 corp: 4/1051b lim: 487 exec/s: 0 rss: 34Mb L: 78/487 MS: 1 ShuffleBytes-
+#7	NEW    cov: 600 ft: 1007 corp: 5/1311b lim: 487 exec/s: 0 rss: 34Mb L: 260/487 MS: 2 ChangeBit-EraseBytes-
+#8	NEW    cov: 600 ft: 1011 corp: 6/1489b lim: 487 exec/s: 0 rss: 34Mb L: 178/487 MS: 1 CrossOver-
+#9	NEW    cov: 618 ft: 1040 corp: 7/1584b lim: 487 exec/s: 0 rss: 34Mb L: 95/487 MS: 1 CopyPart-
+#15	NEW    cov: 618 ft: 1047 corp: 8/1729b lim: 487 exec/s: 0 rss: 34Mb L: 145/487 MS: 1 CopyPart-
+#17	NEW  L: 401/487 MS: 1 EraseBytes-
+	NEW_FUNC[1/19]: 0x00010ab68e10 in std::__1::vector<fst::builder::pending, sINFO: Running with entropic power schedule (0xFF, 100).
+IINFO: Running with e schedule (0nRu91367 power schedtropFO: Seed: 9991367 power schedule (0xFF, 100).
+INFO: Seed:6769
+e (0xFF, 100).
+INFO: Seed:6769
+36769
+0abe8820), 
+INFO:        3 files found in /Users/kronuz/code/Kronuz/termdict/.scratch/fuzz-reader/work
+INFO: -max_len is not provided; libFuzzer will not generate nputs larger than 4096 bytes
+INFO:rmdict/.scratch/fuzz-rtd::__1::allocator<fst::builder::pending>>:eade:__ann

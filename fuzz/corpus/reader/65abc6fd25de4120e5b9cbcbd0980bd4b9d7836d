@@ -1,0 +1,3 @@
+../b/termdict_fuzz -max_total_time=2700 -artifact_prefix=/Users/kronuz/code/Kronuz/termdict/.scratch/fuzz-reader/work/../codratch/fuzz-reader/work >fuzz-5.log 2>&1
+../b/termdict_fuzz -max_total_time=2700 -artifact_prefix=/Users/kronuz/code/Kronuz/termdict/.scratch/fuzz-reader/work/../art/ch/fuzz-reader/work >fuzz-0Ò“˜ 2>&1
+../b/termdict_fuzz -max_total_time=2700 -artifact_prefix=/Users/kadl_uime=2700 -artironuz/te

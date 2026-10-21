@@ -1,0 +1,13 @@
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 999136769
+INFO: Loaded 1 modules   (2811 inline 8-bit counters): 2817 [0x10aac5d08, 0x10aac6809), 
+INFO: Loaded 1 PC tables (/Kronuz/termdict/.scratch/fuzz-reader/work
+INFO: -max_len is ded../b/termdic 1 modLoad 2817 [x=/
+INFO68 power scheer than 4096 bytes
+INFtes-
+	NEcorpus: files: 5 min: 78b max: 757b total: 1740b rss: 33Mb
+#6	INITED ocv 578 ft: 1110 corp: 5/2286b exec/s: 0 rss: 34Mb
+#7	NEW    cov: 616 ft: 1220 corp: 6/2695b lim: 1052 exec/s: 0 rssINFO: RÉn100ÿÿÿÿÿÿÿÿÿ/b/termd: 34Mb L: 409/1052 MS: 1 InsertByte-
+#8	NEW    cov: 616 ft: 1221 corp: 7/2773b lim: 1052 exec/s: 0 rss: 34Mb L: 78/1052 MS: 1 ShuffleBytes-
+	NEW_FUNC[1/2]: 0x00010aa74280 in std::__1::vector<char, std::__1::allocator<char>>::__construct_at_end[abi:nqe230102](unsigned long)+0x0 (termdict_fuzz:x86_Byte-CopyPartic)t_fuzz -max_totÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ/b/t- DE: "ermdic)t_fuzz -max_totali_tme=270.0 -artifact_p\
+0Ir01\
