@@ -555,6 +555,38 @@ private:
 		return size;
 	}
 
+	// Builds the block's last key into out without decoding the whole last run: scans the
+	// run's headers, then decodes from the last entry back only the suffix symbols the key
+	// keeps (each entry supplies the key bytes from its shared length up to the next
+	// entry's).
+	void last_key(std::string& out) const {
+		out.clear();
+		if (count_ == 0) { return; }
+		const std::size_t r = restart_count_ - 1, n = count_ - r * restart_interval;
+		const char* p = nullptr;
+		suffixes s = run(r, p);
+		const suffixes base = s;
+		std::uint64_t shared[restart_interval], suffix[restart_interval], bit[restart_interval], length = 0;
+		for (std::size_t i = 0; i < n; ++i) {
+			std::uint64_t value = 0;
+			header(p, end_, shared[i], suffix[i], value);
+			p += value;
+			if (shared[i] > length) { detail::fail(); }  // the first entry has no predecessor
+			s.start(suffix[i]);
+			bit[i] = s.at_;
+			s.skip(suffix[i]);
+			length = shared[i] + suffix[i];
+		}
+		out.resize(length);
+		for (std::size_t i = n, need = length; i-- && need;) {
+			if (need <= shared[i]) { continue; }
+			suffixes e = base;
+			e.at_ = bit[i];
+			e.decode(std::min<std::uint64_t>(suffix[i], need - shared[i]), out.data() + shared[i]);
+			need = shared[i];
+		}
+	}
+
 public:
 	// Finds key's value by walking restart run r (walk_to's rule); visit(value) sees each
 	// entry's value from the restart through key's, in order.
@@ -630,11 +662,13 @@ public:
 
 		// Moves to the next entry; false past the last.
 		bool next() {
+			on_entry_ = false;
 			if (at_.index == count_) [[unlikely]] {
 				if (next_ >= r_->blocks_.size()) { return false; }
 				open(next_);
 			}
 			size_ = block_->step<true>(at_, key_, size_, value_);
+			on_entry_ = true;
 			return true;
 		}
 		// Moves to the first entry with key >= from, from any position; false when there is
@@ -642,6 +676,12 @@ public:
 		// one index lookup, a binary search of the run starts, and one run walked without
 		// building keys.
 		bool seek(std::string_view from) {
+			const bool ahead = on_entry_;
+			on_entry_ = false;
+			if (ahead && forward(from)) {
+				on_entry_ = true;
+				return true;
+			}
 			const auto offset = r_->index_.floor_value(from);
 			if (!offset) {  // from sorts before every key
 				block_.reset();
@@ -664,6 +704,7 @@ public:
 			}
 			size_ = b.land(l, from, key_, at_);
 			value_ = l.value;
+			on_entry_ = true;
 			return true;
 		}
 
@@ -671,8 +712,59 @@ public:
 		std::string_view value() const noexcept { return value_; }
 
 	private:
+		// A seek to from at or above the current key and at or below the open block's last
+		// key: searches the block's later restart runs, or finishes the current run, without
+		// the index lookup. False (cursor untouched) when from sorts past the block's last
+		// key; one comparison against the cached last key decides. Only called while
+		// on_entry_ holds: next() and seek() clear it before decoding and set it after, so
+		// the key is current and at_.index is past the entry (never 0).
+		bool forward(std::string_view from) {
+			const block& b = *block_;
+			// Two runs at most: a landing run past the current one is the block's last, so
+			// walk_to cannot miss once from <= the last key.
+			static_assert(max_block_entries <= 2 * restart_interval);
+			const int c = from.compare(std::string_view(key_.data(), size_));
+			if (c < 0) { return false; }
+			if (c == 0) { return true; }
+			if (!last_known_) {
+				// A block's first attempt only marks it: decoding its last key pays off when
+				// seeks keep landing here, not after a random seek opened it.
+				if (!tried_) {
+					tried_ = true;
+					return false;
+				}
+				b.last_key(last_);
+				last_known_ = true;
+			}
+			if (from.compare(last_) > 0) { return false; }
+			const std::size_t run = (at_.index - 1) / restart_interval, runs = b.restarts();
+			std::size_t lo = run, hi = runs;  // the last run starting at or below from
+			while (hi - lo > 1) {
+				const std::size_t mid = (lo + hi) / 2;
+				if (b.compare_restart(mid, from) <= 0) { lo = mid; } else { hi = mid; }
+			}
+			if (lo == run) {
+				const std::size_t end = std::min(count_, (run + 1) * restart_interval);
+				while (at_.index < end) {
+					size_ = b.step<true>(at_, key_, size_, value_);
+					if (std::string_view(key_.data(), size_).compare(from) >= 0) { return true; }
+				}
+				return at_.index < count_ && next();  // the next run's first key is above from
+			}
+			block::landing l;
+			if (!b.walk_to(lo, from, [](std::string_view) {}, l)) { return false; }  // only unsorted data
+			size_ = b.land(l, from, key_, at_);
+			value_ = l.value;
+			return true;
+		}
+
 		void open(std::uint64_t offset) {
+			// The same block again keeps what forward seeks learned about it; a rejected open
+			// (it throws) leaves the old block and its marks as they were.
+			const bool same = block_ && offset == offset_;
 			block_.emplace(r_->open(offset));
+			if (!same) { last_known_ = tried_ = false; }
+			offset_ = offset;
 			at_ = {};
 			count_ = block_->count();
 			next_ = block_->next_block();
@@ -684,6 +776,11 @@ public:
 		std::size_t count_ = 0;  // the open block's entries
 		std::size_t size_ = 0;   // the key's length; key_ holds it, padded, and never shrinks
 		std::uint64_t next_ = 0;  // the next block's offset
+		std::uint64_t offset_ = 0;  // the open block's offset
+		bool on_entry_ = false;   // key_ is the cursor's current entry (seek and next returned true)
+		bool last_known_ = false;  // last_ is the open block's last key
+		bool tried_ = false;       // a forward seek has already looked at the open block
+		std::string last_;
 		std::vector<char> key_;
 		std::string_view value_;
 	};

@@ -4,6 +4,8 @@
 //   keyscan_ns  a full reader::cursor walk, per key
 //   seek10_ns   cursor::seek to a present or absent key, then 10 next(), per seek
 //   walk10_ns   the same through reader::scan(from), which builds the floor block's keys
+//   fwd_ns      cursor::seek forward 1..256 entries from the last target, per seek
+//   near_ns     the same, 1..16 entries
 //   find_ns / absent_ns  find() of present and absent keys
 // Each figure is the median of REPS repetitions; build twice (two termdict.hh) for an A/B.
 // TERMDICT_BENCH_BYTES=1 builds over all 256 bytes (byte-coded suffixes) instead of the
@@ -115,6 +117,28 @@ void run(dataset& d, int reps, std::string_view only) {
 		}
 	}
 
+	// Forward targets: each 1..2^hop entries past the previous, half just above a key.
+	auto forward_targets = [&](unsigned hop) {
+		std::vector<std::string> ahead;
+		for (std::size_t pos = 0; ahead.size() < 100000;) {
+			pos += 1 + rng() % (std::size_t(1) << (1 + rng() % hop));
+			if (pos >= n) { pos = 0; }
+			ahead.push_back(ahead.size() % 2 ? d.keys[pos] : d.keys[pos] + '\0');
+		}
+		return ahead;
+	};
+	const auto ahead = forward_targets(8), near = forward_targets(4);
+	if constexpr (seekable<Cursor>) {
+		for (const auto* set : {&ahead, &near}) {
+			Cursor c(r);
+			for (const auto& t : *set) {
+				const auto it = std::lower_bound(d.keys.begin(), d.keys.end(), t);
+				const bool ok = c.seek(t);
+				if (ok != (it != d.keys.end()) || (ok && c.key() != *it)) { std::fprintf(stderr, "forward seek wrong\n"); std::exit(1); }
+			}
+		}
+	}
+
 	auto want = [&](std::string_view what) { return only.empty() || only == what; };
 	const double keyscan = !want("keyscan") ? 0 : median_of(std::max<int>(reps, int(5000000 / n)), [&] {
 		termdict::reader::cursor c(r);
@@ -140,6 +164,22 @@ void run(dataset& d, int reps, std::string_view only) {
 			sink = sink + s;
 			return t / double(targets.size());
 		});
+	}
+	double fwd = 0, nearns = 0;
+	if constexpr (seekable<Cursor>) {
+		auto forward = [&](const std::vector<std::string>& set) {
+			return median_of(reps, [&] {
+				Cursor c(r);
+				std::uint64_t s = 0;
+				const auto t0 = clk::now();
+				for (const auto& k : set) { s += c.seek(k) ? c.key().size() : 0; }
+				const double t = ns(t0);
+				sink = sink + s;
+				return t / double(set.size());
+			});
+		};
+		if (want("fwd")) { fwd = forward(ahead); }
+		if (want("near")) { nearns = forward(near); }
 	}
 	const double walk10 = !want("walk10") ? 0 : median_of(reps, [&] {
 		std::uint64_t s = 0;
@@ -171,8 +211,8 @@ void run(dataset& d, int reps, std::string_view only) {
 		sink = sink + s;
 		return t / double(gone.size());
 	});
-	std::printf("{\"set\":\"%s\",\"keys\":%zu,\"bytes_per_key\":%.3f,\"keyscan_ns\":%.2f,\"seek10_ns\":%.1f,\"walk10_ns\":%.1f,\"find_ns\":%.1f,\"absent_ns\":%.1f}\n", d.name, n,
-		double(d.t.blocks.size() + d.t.index.size()) / double(n), keyscan, seek10, walk10, find, absent);
+	std::printf("{\"set\":\"%s\",\"keys\":%zu,\"bytes_per_key\":%.3f,\"keyscan_ns\":%.2f,\"seek10_ns\":%.1f,\"fwd_ns\":%.1f,\"near_ns\":%.1f,\"walk10_ns\":%.1f,\"find_ns\":%.1f,\"absent_ns\":%.1f}\n", d.name, n,
+		double(d.t.blocks.size() + d.t.index.size()) / double(n), keyscan, seek10, fwd, nearns, walk10, find, absent);
 	std::fflush(stdout);
 }
 

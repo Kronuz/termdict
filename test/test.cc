@@ -129,6 +129,13 @@ static void check_seek(const std::vector<std::string>& keys, bool coded) {
 			CHECK(!c.next());
 		}
 	};
+	// Forward seeks that stay on one cursor: short hops, run and block crossings.
+	for (std::size_t step : {1, 2, 5, 31, 32, 33, 100, 700}) {
+		c.seek("");
+		for (std::size_t i = 0; i < keys.size(); i += step) {
+			expect(i % 2 ? keys[i] : keys[i] + '\0');
+		}
+	}
 	expect("");
 	expect(std::string(1, '\xff') + keys.back());
 	expect(keys.back() + "\xff");
@@ -148,6 +155,174 @@ static void check_seek(const std::vector<std::string>& keys, bool coded) {
 }
 
 
+// Forward seeks stay in the open block exactly when the target sorts between the current key
+// and the block's last key: a counting verifier sees every block the cursor opens. Targets
+// are each block's keys, restart keys, last key, one past it, and the next block's first key,
+// from every position in the block, checked against std::lower_bound; backward targets too.
+static void check_forward(const std::vector<std::string>& keys, bool coded) {
+	reference ref;
+	for (std::size_t i = 0; i < keys.size(); ++i) { ref[keys[i]] = std::to_string(i); }
+	auto t = build(ref, coded);
+	std::size_t verifies = 0;
+	termdict::reader r(t.blocks, t.index, [](void* n, std::uint64_t, std::uint64_t) { ++*static_cast<std::size_t*>(n); return true; }, &verifies);
+	std::vector<std::size_t> first;  // each block's first key's position
+	{
+		termdict::reader::cursor c(r);
+		std::size_t seen = verifies, i = 0;
+		while (c.next()) {
+			if (verifies != seen) { first.push_back(i); seen = verifies; }
+			CHECK(c.key() == keys[i]);
+			++i;
+		}
+		CHECK(i == keys.size());
+	}
+	first.push_back(keys.size());
+	{  // block::last_key against each block's true last key
+		std::uint64_t at = 0;
+		std::string got;
+		for (std::size_t b = 0; b + 1 < first.size(); ++b) {
+			const auto blk = r.open(at);
+			blk.last_key(got);
+			CHECK(got == keys[first[b + 1] - 1]);
+			at = blk.next_block();
+		}
+	}
+	termdict::reader::cursor c(r);
+	// Seeks to target from the entry at s; true when it landed inside the block ending at last.
+	auto probe = [&](std::size_t s, const std::string& target, std::size_t last) {
+		CHECK(c.seek(keys[s]) && c.key() == keys[s]);
+		c.tried_ = true;  // the first forward attempt in a block only marks it
+		const std::size_t before = verifies;
+		const auto w = std::lower_bound(keys.begin(), keys.end(), target);
+		const bool found = c.seek(target);
+		CHECK(found == (w != keys.end()));
+		if (found && w != keys.end()) { CHECK(c.key() == *w && c.value() == ref[*w]); }
+		const bool inside = target >= keys[s] && target <= keys[last];
+		CHECK((verifies == before) == inside);
+		if (found) {
+			const bool more = c.next();
+			CHECK(more == (std::next(w) != keys.end()));
+			if (more) { CHECK(c.key() == *std::next(w)); }
+		} else {
+			CHECK(!c.next());
+		}
+	};
+	for (std::size_t b = 0; b + 1 < first.size(); ++b) {
+		const std::size_t f = first[b], last = first[b + 1] - 1;
+		for (std::size_t s = f; s <= last; ++s) {
+			std::vector<std::size_t> to;  // positions whose key and key + '\0' are targets
+			for (std::size_t j = s; j <= last; ++j) { to.push_back(j); }
+			for (std::size_t j : to) {
+				probe(s, keys[j], last);
+				probe(s, keys[j] + '\0', last);
+			}
+			if (last + 1 < keys.size()) {  // the next block's first key, and a hop past it
+				probe(s, keys[last + 1], last);
+				probe(s, keys[std::min(keys.size() - 1, last + 40)], last);
+			}
+			probe(s, keys[last] + "\xff", last);
+			if (s > 0) {  // backwards: below the current key, in and out of the block
+				probe(s, keys[s - 1], last);
+				probe(s, keys[s - 1] + '\0', last);
+				probe(s, keys[f], last);
+			}
+			probe(s, "", last);
+			probe(s, keys[s], last);  // equal to the current key
+		}
+	}
+	// A block's first forward attempt only marks it (falls back to the index); later ones hit.
+	for (std::size_t b = 0; b + 1 < first.size(); ++b) {
+		const std::size_t f = first[b];
+		if (first[b + 1] - f < 4) { continue; }
+		CHECK(c.seek("") && c.seek(keys[f]) && c.key() == keys[f]);
+		std::size_t before = verifies;
+		CHECK(c.seek(keys[f + 1]) && c.key() == keys[f + 1]);
+		CHECK(verifies != before);
+		before = verifies;
+		CHECK(c.seek(keys[f + 2]) && c.key() == keys[f + 2]);
+		CHECK(verifies == before);
+	}
+	// Reaching the start entry with next() leaves the cursor positioned: the second seek ahead hits.
+	for (std::size_t b = 0; b + 1 < first.size(); ++b) {
+		const std::size_t f = first[b];
+		if (first[b + 1] - f < 8) { continue; }
+		termdict::reader::cursor d(r);
+		for (std::size_t i = 0; i <= f + 1; ++i) { CHECK(d.next()); }
+		CHECK(d.key() == keys[f + 1]);
+		CHECK(d.seek(keys[f + 3]) && d.key() == keys[f + 3]);  // marks the block
+		const std::size_t before = verifies;
+		CHECK(d.seek(keys[f + 5]) && d.key() == keys[f + 5]);
+		CHECK(verifies == before);
+	}
+	// A failed seek leaves the cursor past the end, not on a stale entry.
+	for (std::size_t j : {std::size_t(0), std::size_t(1), keys.size() / 2, keys.size() - 1}) {
+		if (j >= keys.size()) { continue; }
+		CHECK(c.seek(keys[0]));
+		CHECK(!c.seek(keys.back() + "\xff") && !c.next());
+		CHECK(c.seek(keys[j]) && c.key() == keys[j]);
+		CHECK(c.next() == (j + 1 < keys.size()) && (j + 1 == keys.size() || c.key() == keys[j + 1]));
+		CHECK(c.seek(keys.back()) && c.key() == keys.back() && !c.next());
+		CHECK(!c.seek(keys.back() + '\0') && !c.next());
+		CHECK(c.seek(keys[j]) && c.key() == keys[j]);
+	}
+	// Random hops over one cursor against lower_bound.
+	std::mt19937_64 rng(keys.size() * 31 + coded);
+	std::size_t pos = 0;
+	for (int i = 0; i < 20000; ++i) {
+		pos = rng() % 5 == 0 ? rng() % keys.size() : std::min<std::size_t>(keys.size() - 1, pos + rng() % (rng() % 4 ? 20 : 200));
+		std::string target = keys[pos];
+		switch (rng() % 4) {
+		case 1: target += '\0'; break;
+		case 2: target.resize(target.size() / 2); break;
+		case 3: if (!target.empty()) { target.back() = char(std::uint8_t(target.back()) + 1); } break;
+		default: break;
+		}
+		const auto w = std::lower_bound(keys.begin(), keys.end(), target);
+		const bool found = c.seek(target);
+		CHECK(found == (w != keys.end()));
+		if (found && w != keys.end()) { CHECK(c.key() == *w); pos = std::size_t(w - keys.begin()); }
+	}
+}
+
+
+// A rejected block open leaves the cursor on the block it had: the cached offset and last key
+// still describe it, and seeks go on answering exactly.
+static void check_rejected_open() {
+	std::vector<std::string> keys;
+	reference ref;
+	for (int i = 0; i < 1000; ++i) {
+		char k[16];
+		std::snprintf(k, sizeof k, "k%06d", i * 3);
+		keys.push_back(k);
+		ref[k] = std::to_string(i);
+	}
+	auto t = build(ref);
+	struct gate { bool reject = false; } g;
+	termdict::reader r(t.blocks, t.index, [](void* c, std::uint64_t, std::uint64_t) { return !static_cast<gate*>(c)->reject; }, &g);
+	std::vector<std::uint64_t> offsets;
+	for (std::uint64_t at = 0; at < t.blocks.size();) {
+		offsets.push_back(at);
+		at = r.open(at).next_block();
+	}
+	CHECK(offsets.size() >= 3);
+	termdict::reader::cursor c(r);
+	CHECK(c.seek(keys[0]));
+	for (std::size_t i = 1; i <= 3; ++i) { CHECK(c.seek(keys[i]) && c.key() == keys[i]); }  // learns the last key
+	CHECK(c.offset_ == offsets[0] && c.last_known_);
+	g.reject = true;
+	bool threw = false;
+	try { (void)c.seek(keys.back()); } catch (const termdict::corrupt&) { threw = true; }
+	CHECK(threw);
+	CHECK(c.offset_ == offsets[0] && c.last_known_);
+	g.reject = false;
+	// The old block keeps answering; crossing into the next one must not reuse its last key.
+	for (std::size_t i : {std::size_t(4), std::size_t(5), keys.size() / 2, keys.size() / 2 + 1, keys.size() - 1}) {
+		CHECK(c.seek(keys[i]) && c.key() == keys[i]);
+	}
+	for (std::size_t i = 0; i < keys.size(); ++i) { CHECK(c.seek(keys[i]) && c.key() == keys[i]); }
+}
+
+
 // Runs fn over a copy of bytes in an exact-size heap block, so ASan sees any read past its end.
 template <class F>
 static void on_exact(std::string_view bytes, F&& fn) {
@@ -161,6 +336,14 @@ static void on_exact(std::string_view bytes, F&& fn) {
 static void drive(std::string_view bytes, const std::string& index, const std::vector<std::string>& probes) {
 	termdict::reader r(bytes, index);
 	{ termdict::reader::cursor c(r); try { while (c.next()) { (void)c.key(); (void)c.value(); } } catch (const termdict::corrupt&) {} }
+	{  // one cursor seeking on from where it stands: the in-block forward path over corrupt blocks
+		termdict::reader::cursor c(r);
+		for (const auto& p : probes) {
+			for (const auto& t : {p, p + '\0', p + "\xff"}) {
+				try { (void)c.seek(t); } catch (const termdict::corrupt&) {}
+			}
+		}
+	}
 	for (const auto& p : probes) {
 		try { termdict::reader::cursor c(r); if (c.seek(p)) { for (int s = 0; s < 40 && c.next(); ++s) { (void)c.key(); } } } catch (const termdict::corrupt&) {}
 		try { int n = 0; r.scan(p, [&](std::string_view, std::string_view) { return ++n < 40; }); } catch (const termdict::corrupt&) {}
@@ -292,9 +475,13 @@ int main() {
 		sets[2].push_back("only");
 		for (int i = 1; i <= 200; ++i) { sets[3].push_back(std::string(std::size_t(i), 'p')); }
 		for (const auto& keys : sets) {
-			for (bool coded : {false, true}) { check_seek(keys, coded); }
+			for (bool coded : {false, true}) {
+				check_seek(keys, coded);
+				check_forward(keys, coded);
+			}
 		}
 	}
+	check_rejected_open();
 	// A suffix code past the alphabet is corrupt, at every symbol position and width, and the
 	// largest valid codes beside it are not: one key of n symbols, each the alphabet's
 	// largest code (size - 1), then one symbol raised to 2^width - 1.
