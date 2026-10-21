@@ -1,0 +1,3 @@
+../b/termd`ict_fuzz -max_total_tim
+../b/termdict_fuzz -max_total_time=2700 -artifact_prefi>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>x=/Users/kronuz/code/Kronuz/termdict/.scratal_time=2700 -artifact_prefix=/Users/kronuz/code/Kronuz/termdicÿÿfuzz-0.log 2>&1
+../b/termdict_fuzz -max_total_time=2700 -artifact_prefi>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>x=/Users/kronuz/code/Kronuz/termdict/./Kronuz/termdict/.scratch/fuzz-reader/work >fuzz-reader/work >fuzz-1.log 2>&1

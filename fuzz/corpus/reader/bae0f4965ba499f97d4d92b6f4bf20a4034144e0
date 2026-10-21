@@ -1,0 +1,2 @@
+../b/dict_fuzz -max_total_time=2700 -ar>fuzz-0.log 2>&1
+..ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ/b/termdict_fuzz -max_total_time=2700 -artifact_prefix=/Users/kronuz/ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ/b/termdict_fuzz -max_total_time=27c./art/ /Users/kronuz/code/Kronuz/termdict/.scratch/fuzz-reader/work >fuzz-1.log 2>&1

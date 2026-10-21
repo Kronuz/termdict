@@ -1,0 +1,43 @@
+INFO: Running with entropic powINFO: Seed: 999132916
+INFO: Loaded 1 modules   (2817 inline 8-bit counters): 2817 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+
+
+: 1 CrossOver-
+#9	NEW    cov: 619 ft: 1040 corp: 7/1584b lim: 487 exec/s: 0 rss: 34Mb L: 95/487 MS: 1 CopyPart-
+#15	NEW ](unsigned long) const+0x0 (termdict_fuzz:x86_4+0x10002d580)
+#28	NEW    cov: 776MS: 1 Inset+0x0 (termdict_fuzz:x86_64+0x10000c3c0)
+#23_1::__tree_node_base<void*>*)+0x0 (termdict_fuzz:x87
+
+
+&
+
+
+
+
+
+
+
+
+
+_64+0x100033198)
+#22	NEW    cb lim: 1052 exec/s: 0 rss: 37Mb L: 1001/1052 MS: 1 CrossOver-
+#60	NEW    cov: 796 4b lim: 487 exec/s: 0 rss:  PCs): 2817 [0x1S: 1 CopyPart-
+#15	NEW ](unsigned long) const+0x0 (termdict_fuzz:x86_4+0x1487 exec//s: 0 rss: 37Mb L: 402/48
