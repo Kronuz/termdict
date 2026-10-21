@@ -23,7 +23,11 @@ term statistics and postings pointers. Header-only; depends on
   5 bits a byte. Each restart run stores its suffixes as one bit stream.
 - `termdict::reader(blocks, index)`: `find(key)` returns the value bytes or nothing;
   `scan(from, f)` visits entries with keys `>= from` in order; `reader::cursor` pulls
-  every entry in order, one block decoded at a time, for k-way merges of dictionaries.
+  every entry in order, one block decoded at a time, for k-way merges of dictionaries,
+  and `cursor::seek(from)` moves it to the first key `>= from` from any position.
+- A seek starts at its target: one `fst::floor_value`, a binary search over the block's
+  restart points, and one restart run walked without building keys; only the landing
+  key is rebuilt, as the target's shared prefix plus its own suffix.
 - Blocks hold 32–64 entries (cut at 64, or at 32 or more once 1 KiB is reached). Entries
   are prefix-compressed; every 32nd entry is a restart point stored whole.
 - A lookup is one `fst::floor_value` over the block index, a binary search over at most
@@ -34,6 +38,8 @@ term statistics and postings pointers. Header-only; depends on
 - `reader(blocks, index, verify, context)` calls `verify(context, offset, length)`
   on each block's bytes before reading them (its length prefix, then the whole
   block), for checksum verification on first use; a false return throws `corrupt`.
+  Without it, a lookup, seek or scan validates only the entries it decodes, so damage
+  elsewhere in a block goes unnoticed until something reads it.
 
 ## 📦 Installation
 
@@ -64,6 +70,11 @@ auto tables = b.finish();               // tables.blocks, tables.index
 termdict::reader r(tables.blocks, tables.index);
 auto v = r.find("apply");               // "\x03"
 r.scan("app", [](std::string_view key, std::string_view value) { return true; });
+
+termdict::reader::cursor c(r);
+for (bool more = c.seek("applf"); more; more = c.next()) {
+  // c.key(), c.value(): "apply" first
+}
 ```
 
 ## ⚡ Performance
@@ -88,10 +99,13 @@ cmake -S . -B build && cmake --build build && ctest --test-dir build
 build/termdict_bench KEYS_FILE
 ```
 
-The tests compare `find` and `scan` with `std::map` over random key sets (including
-long values that force small blocks) and the system dictionary, reject unsorted input,
-query every truncation and 20,000 random corruptions, and compare a golden fixture.
-`fuzz/fuzz_reader.cc` is a libFuzzer target.
+The tests compare `find`, `scan`, and cursor seeks with `std::map` over random key sets
+(including long values that force small blocks) and the system dictionary, seek to every
+key and beside it across block boundaries, reject unsorted input and out-of-alphabet codes
+at every width, query every truncation and 20,000 random corruptions, and compare a golden
+fixture. `fuzz/fuzz_reader.cc` is a libFuzzer target. `build/termdict_scan_bench` times
+sequential decode, seeks, and lookups on strata's KV keys and a vocabulary
+([docs/perf/seek-decode.md](docs/perf/seek-decode.md)).
 
 ## 🎯 When to use it
 

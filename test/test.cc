@@ -70,6 +70,67 @@ static void check(const reference& ref, std::mt19937_64& rng, const std::string&
 		for (auto w = want.begin(); w != want.end() && prefix.size() < limit; ++w) { prefix.insert(*w); }
 		CHECK(seen == (limit ? prefix : reference{}) || (limit == 0 && seen.size() <= 1));
 	}
+	// One cursor seeking from wherever the last seek and walk left it: each lands on
+	// lower_bound, and next() goes on in order from there.
+	termdict::reader::cursor c(r);
+	for (int i = 0; i < probes; ++i) {
+		std::string probe = random_key();
+		if (i % 3 == 0 && !ref.empty()) {  // a present key
+			auto it = ref.begin();
+			std::advance(it, std::ptrdiff_t(rng() % ref.size()));
+			probe = it->first;
+		}
+		auto w = ref.lower_bound(probe);
+		CHECK(c.seek(probe) == (w != ref.end()));
+		for (std::size_t steps = rng() % 70; w != ref.end(); ++w) {
+			CHECK(c.key() == w->first && c.value() == w->second);
+			if (steps-- == 0) { break; }
+			const bool more = c.next();
+			CHECK(more == (std::next(w) != ref.end()));
+		}
+		if (w == ref.end()) { CHECK(!c.next()); }
+	}
+}
+
+// Seeks to every key, and to probes just below, just above, and inside each, against
+// lower_bound: every block's first and last key, every restart run's first, and past the end.
+static void check_seek(const std::vector<std::string>& keys, bool coded) {
+	reference ref;
+	for (std::size_t i = 0; i < keys.size(); ++i) { ref[keys[i]] = std::to_string(i); }
+	auto t = build(ref, coded);
+	termdict::reader r(t.blocks, t.index);
+	termdict::reader::cursor c(r);
+	auto expect = [&](const std::string& probe) {
+		auto w = ref.lower_bound(probe);
+		const bool found = c.seek(probe);
+		CHECK(found == (w != ref.end()));
+		if (found && w != ref.end()) {
+			CHECK(c.key() == w->first && c.value() == w->second);
+			if (std::next(w) != ref.end()) {
+				CHECK(c.next() && c.key() == std::next(w)->first);
+			} else {
+				CHECK(!c.next());
+			}
+		} else {
+			CHECK(!c.next());
+		}
+	};
+	expect("");
+	expect(std::string(1, '\xff') + keys.back());
+	expect(keys.back() + "\xff");
+	for (const auto& k : keys) {
+		expect(k);
+		expect(k + '\0');
+		expect(k + "\xff");
+		expect(k.substr(0, k.size() - 1));
+		std::string below = k;
+		below.back() = char(std::uint8_t(below.back()) - 1);
+		expect(below);
+		expect(below + "\xff\xff");
+	}
+	// Backward and forward from the end.
+	CHECK(!c.seek(keys.back() + "\xff") && !c.next());
+	CHECK(c.seek(keys.front()) && c.key() == ref.begin()->first);
 }
 
 int main() {
@@ -97,6 +158,67 @@ int main() {
 		std::size_t n = 0;
 		r.scan("", [&](std::string_view, std::string_view) { return ++n > 0; });
 		CHECK(n == 0);
+		termdict::reader::cursor c(r);
+		CHECK(!c.seek("") && !c.seek("x") && !c.next());
+	}
+	// Seeks at every key and block boundary: keys sharing long prefixes, keys of one byte,
+	// one key, and keys that are prefixes of the next.
+	{
+		std::vector<std::string> sets[4];
+		for (int i = 0; i < 3000; ++i) {
+			char k[16];
+			std::snprintf(k, sizeof k, "k%06d", i * 7);
+			sets[0].push_back(k);
+		}
+		for (int c = 'b'; c <= 'y'; ++c) { sets[1].push_back(std::string(1, char(c))); }
+		sets[2].push_back("only");
+		for (int i = 1; i <= 200; ++i) { sets[3].push_back(std::string(std::size_t(i), 'p')); }
+		for (const auto& keys : sets) {
+			for (bool coded : {false, true}) { check_seek(keys, coded); }
+		}
+	}
+	// A suffix code past the alphabet is corrupt, at every symbol position and width, and the
+	// largest valid codes beside it are not: one key of n symbols, each the alphabet's
+	// largest code (size - 1), then one symbol raised to 2^width - 1.
+	for (unsigned width = 1; width <= 8; ++width) {
+		const unsigned size = width == 1 ? 1 : (1u << width) - 1;
+		std::string alphabet;
+		for (unsigned i = 1; i <= size; ++i) { alphabet.push_back(char(i)); }
+		for (std::size_t n = 1; n <= 40; ++n) {
+			termdict::builder b(alphabet);
+			const std::string key(n, alphabet.back());
+			b.add(key, "");
+			auto t = b.finish();
+			CHECK(t.blocks.size() < 128 && t.blocks[4] == char((n * width + 7) / 8));  // one-byte lengths
+			{
+				termdict::reader r(t.blocks, t.index);
+				termdict::reader::cursor c(r);
+				CHECK(c.next() && c.key() == key);
+				CHECK(c.seek(key) && c.key() == key);
+			}
+			for (std::size_t j = 0; j < n; ++j) {
+				std::string bad = t.blocks;
+				for (std::size_t bit = j * width; bit < (j + 1) * width; ++bit) { bad[5 + bit / 8] = char(bad[5 + bit / 8] | (1 << (bit % 8))); }
+				termdict::reader r(bad, t.index);
+				int threw = 0;
+				try {
+					termdict::reader::cursor c(r);
+					(void)c.next();
+				} catch (const termdict::corrupt&) { ++threw; }
+				try {
+					termdict::reader::cursor c(r);
+					(void)c.seek("");
+				} catch (const termdict::corrupt&) { ++threw; }
+				try {
+					termdict::alphabet a;
+					(void)a.parse(t.index);
+					termdict::block blk(bad, 0, a);
+					termdict::block::cursor bc(blk, 0);
+					(void)bc.next();
+				} catch (const termdict::corrupt&) { ++threw; }
+				CHECK(threw == 3);
+			}
+		}
 	}
 	// A key byte outside the alphabet is refused.
 	{
