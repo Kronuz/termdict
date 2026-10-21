@@ -50,6 +50,17 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 		seek(k.substr(0, k.size() / 2));
 		if (!k.empty()) { seek(k.substr(0, k.size() - 1) + char(std::uint8_t(k.back()) + 1)); }
 	}
+	// Ascending seeks on one cursor, no next() between: the in-block forward path.
+	termdict::reader::cursor fwd(r);
+	for (auto w = keys.begin(); w != keys.end();) {
+		if (!fwd.seek(w->first + '\0')) {
+			if (std::next(w) != keys.end()) { std::abort(); }
+			break;
+		}
+		const auto want = keys.lower_bound(w->first + '\0');
+		if (want == keys.end() || fwd.key() != want->first) { std::abort(); }
+		for (std::size_t hop = 1 + w->first.size() % 5; hop-- && w != keys.end();) { ++w; }
+	}
 	seek(std::string(bytes.substr(0, 8)));
 	// The same index over the fuzz bytes as block data.
 	termdict::reader junk(bytes, t.index);
@@ -61,6 +72,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 		for (const auto& [k, v] : keys) {
 			if (j.seek(k)) { (void)j.next(); }
 		}
+		termdict::reader::cursor ahead(junk);  // forward seeks without next(), over junk blocks
+		for (const auto& [k, v] : keys) { (void)ahead.seek(k); }
 	} catch (const termdict::corrupt&) {
 	}
 	return 0;
