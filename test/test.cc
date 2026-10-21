@@ -220,11 +220,12 @@ static void check_forward(const std::vector<std::string>& keys, bool coded) {
 		}
 	}
 	// A failed seek leaves the cursor past the end, not on a stale entry.
-	for (std::size_t j : {std::size_t(1), keys.size() / 2, keys.size() - 1}) {
+	for (std::size_t j : {std::size_t(0), std::size_t(1), keys.size() / 2, keys.size() - 1}) {
 		if (j >= keys.size()) { continue; }
 		CHECK(c.seek(keys[0]));
 		CHECK(!c.seek(keys.back() + "\xff") && !c.next());
 		CHECK(c.seek(keys[j]) && c.key() == keys[j]);
+		CHECK(c.next() == (j + 1 < keys.size()) && (j + 1 == keys.size() || c.key() == keys[j + 1]));
 		CHECK(c.seek(keys.back()) && c.key() == keys.back() && !c.next());
 		CHECK(!c.seek(keys.back() + '\0') && !c.next());
 		CHECK(c.seek(keys[j]) && c.key() == keys[j]);
@@ -233,7 +234,7 @@ static void check_forward(const std::vector<std::string>& keys, bool coded) {
 	std::mt19937_64 rng(keys.size() * 31 + coded);
 	std::size_t pos = 0;
 	for (int i = 0; i < 20000; ++i) {
-		pos = rng() % 5 == 0 ? rng() % keys.size() : std::min(keys.size() - 1, pos + rng() % (rng() % 4 ? 20 : 200));
+		pos = rng() % 5 == 0 ? rng() % keys.size() : std::min<std::size_t>(keys.size() - 1, pos + rng() % (rng() % 4 ? 20 : 200));
 		std::string target = keys[pos];
 		switch (rng() % 4) {
 		case 1: target += '\0'; break;
