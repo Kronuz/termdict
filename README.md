@@ -38,6 +38,8 @@ term statistics and postings pointers. Header-only; depends on
 - `reader(blocks, index, verify, context)` calls `verify(context, offset, length)`
   on each block's bytes before reading them (its length prefix, then the whole
   block), for checksum verification on first use; a false return throws `corrupt`.
+  Without it, a lookup, seek or scan validates only the entries it decodes, so damage
+  elsewhere in a block goes unnoticed until something reads it.
 
 ## 📦 Installation
 
