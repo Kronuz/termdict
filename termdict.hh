@@ -642,6 +642,7 @@ public:
 		// one index lookup, a binary search of the run starts, and one run walked without
 		// building keys.
 		bool seek(std::string_view from) {
+			if (block_ && at_.index > 0 && forward(from)) { return true; }
 			const auto offset = r_->index_.floor_value(from);
 			if (!offset) {  // from sorts before every key
 				block_.reset();
@@ -671,6 +672,45 @@ public:
 		std::string_view value() const noexcept { return value_; }
 
 	private:
+		// A seek to from at or above the current key that lands inside the open block:
+		// searches the block's later restart runs, or finishes the current run, without the
+		// index lookup. False when from may lie past the block (the cursor stays valid).
+		bool forward(std::string_view from) {
+			const block& b = *block_;
+			const std::string_view cur(key_.data(), size_);
+			const int c = from.compare(cur);
+			if (c < 0) { return false; }
+			if (c == 0) { return true; }
+			// A far target (little prefix in common) is rarely in this block: skip the attempt.
+			std::size_t lcp = 0;
+			for (const std::size_t n = std::min(cur.size(), from.size()); lcp < n && cur[lcp] == from[lcp];) { ++lcp; }
+			if (lcp * 3 < cur.size()) { return false; }
+			const std::size_t run = (at_.index - 1) / restart_interval, runs = b.restarts();
+			std::size_t lo = run, hi = runs;  // the last run starting at or below from
+			while (hi - lo > 1) {
+				const std::size_t mid = (lo + hi) / 2;
+				if (b.compare_restart(mid, from) <= 0) { lo = mid; } else { hi = mid; }
+			}
+			if (lo == run) {
+				const std::size_t end = std::min(count_, (run + 1) * restart_interval);
+				while (at_.index < end) {
+					size_ = b.step<true>(at_, key_, size_, value_);
+					if (std::string_view(key_.data(), size_).compare(from) >= 0) { return true; }
+				}
+				if (end == count_) { return false; }  // from may sort past the block's last key
+				return next();  // the next run's first key is above from
+			}
+			block::landing l;
+			if (!b.walk_to(lo, from, [](std::string_view) {}, l)) {
+				if (lo + 1 == runs) { return false; }
+				at_.index = (lo + 1) * restart_interval;
+				return next();
+			}
+			size_ = b.land(l, from, key_, at_);
+			value_ = l.value;
+			return true;
+		}
+
 		void open(std::uint64_t offset) {
 			block_.emplace(r_->open(offset));
 			at_ = {};

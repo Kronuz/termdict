@@ -115,6 +115,13 @@ static void check_seek(const std::vector<std::string>& keys, bool coded) {
 			CHECK(!c.next());
 		}
 	};
+	// Forward seeks that stay on one cursor: short hops, run and block crossings.
+	for (std::size_t step : {1, 2, 5, 31, 32, 33, 100, 700}) {
+		c.seek("");
+		for (std::size_t i = 0; i < keys.size(); i += step) {
+			expect(i % 2 ? keys[i] : keys[i] + '\0');
+		}
+	}
 	expect("");
 	expect(std::string(1, '\xff') + keys.back());
 	expect(keys.back() + "\xff");
