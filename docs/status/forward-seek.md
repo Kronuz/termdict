@@ -4,22 +4,19 @@ Branch `perf/forward-seek` (worktree `~/code/Kronuz/termdict-wt/forward-seek`), 
 
 ## State
 
-Code and tests written; not yet compiled (host under a strict hold from another agent).
-Needs one review before landing: `cursor::seek` is a decoder path in a shared library.
+Implemented, tested, measured; pushed, CI dispatched on the branch. Needs one review before landing:
+`cursor::seek` is a decoder path in a shared library.
 
 ## Done
 
-- Explorer B's change (1deaa82) cherry-picked as a starting point, its common-prefix gate
-  replaced by an exact test: the open block's last key, decoded once per open block on the
-  first forward attempt and compared with `from`.
-- `on_entry_` guards the fast path (a failed seek leaves a stale key behind).
-- Tests: `check_forward` (block-count oracle, all positions x boundary targets, backward,
-  random hops against lower_bound); fuzz target gained ascending seeks without next().
+- Explorer B's change (1deaa82) with its heuristic replaced by a last-key test; `block::last_key`
+  decodes only the symbols the key keeps; decoded on a block's second forward attempt.
+- `check_forward`, corruption-sweep forward seeks, fuzz forward seeks; four mutants caught;
+  ASan+UBSan clean; 60 s fuzz clean. Numbers in docs/perf/forward-seek.md.
 
 ## Next
 
-Build, test, ASan+UBSan, mutant, measure (near, fwd, random), docs/perf/forward-seek.md,
-push, dispatch CI, remove explorer worktrees.
+Review, then land. Optional: store the last key in the block (format change).
 
 ## Blocked on
 
