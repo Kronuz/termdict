@@ -177,6 +177,16 @@ static void check_forward(const std::vector<std::string>& keys, bool coded) {
 		CHECK(i == keys.size());
 	}
 	first.push_back(keys.size());
+	{  // block::last_key against each block's true last key
+		std::uint64_t at = 0;
+		std::string got;
+		for (std::size_t b = 0; b + 1 < first.size(); ++b) {
+			const auto blk = r.open(at);
+			blk.last_key(got);
+			CHECK(got == keys[first[b + 1] - 1]);
+			at = blk.next_block();
+		}
+	}
 	termdict::reader::cursor c(r);
 	// Seeks to target from the entry at s; true when it landed inside the block ending at last.
 	auto probe = [&](std::size_t s, const std::string& target, std::size_t last) {
@@ -263,6 +273,14 @@ static void on_exact(std::string_view bytes, F&& fn) {
 static void drive(std::string_view bytes, const std::string& index, const std::vector<std::string>& probes) {
 	termdict::reader r(bytes, index);
 	{ termdict::reader::cursor c(r); try { while (c.next()) { (void)c.key(); (void)c.value(); } } catch (const termdict::corrupt&) {} }
+	{  // one cursor seeking on from where it stands: the in-block forward path over corrupt blocks
+		termdict::reader::cursor c(r);
+		for (const auto& p : probes) {
+			for (const auto& t : {p, p + '\0', p + "\xff"}) {
+				try { (void)c.seek(t); } catch (const termdict::corrupt&) {}
+			}
+		}
+	}
 	for (const auto& p : probes) {
 		try { termdict::reader::cursor c(r); if (c.seek(p)) { for (int s = 0; s < 40 && c.next(); ++s) { (void)c.key(); } } } catch (const termdict::corrupt&) {}
 		try { int n = 0; r.scan(p, [&](std::string_view, std::string_view) { return ++n < 40; }); } catch (const termdict::corrupt&) {}

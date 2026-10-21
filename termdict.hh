@@ -555,6 +555,38 @@ private:
 		return size;
 	}
 
+	// Builds the block's last key into out without decoding the whole last run: scans the
+	// run's headers, then decodes from the last entry back only the suffix symbols the key
+	// keeps (each entry supplies the key bytes from its shared length up to the next
+	// entry's).
+	void last_key(std::string& out) const {
+		out.clear();
+		if (count_ == 0) { return; }
+		const std::size_t r = restart_count_ - 1, n = count_ - r * restart_interval;
+		const char* p = nullptr;
+		suffixes s = run(r, p);
+		const suffixes base = s;
+		std::uint64_t shared[restart_interval], suffix[restart_interval], bit[restart_interval], length = 0;
+		for (std::size_t i = 0; i < n; ++i) {
+			std::uint64_t value = 0;
+			header(p, end_, shared[i], suffix[i], value);
+			p += value;
+			if (shared[i] > length) { detail::fail(); }  // the first entry has no predecessor
+			s.start(suffix[i]);
+			bit[i] = s.at_;
+			s.skip(suffix[i]);
+			length = shared[i] + suffix[i];
+		}
+		out.resize(length);
+		for (std::size_t i = n, need = length; i-- && need;) {
+			if (need <= shared[i]) { continue; }
+			suffixes e = base;
+			e.at_ = bit[i];
+			e.decode(std::min<std::uint64_t>(suffix[i], need - shared[i]), out.data() + shared[i]);
+			need = shared[i];
+		}
+	}
+
 public:
 	// Finds key's value by walking restart run r (walk_to's rule); visit(value) sees each
 	// entry's value from the restart through key's, in order.
@@ -690,9 +722,7 @@ public:
 			if (c < 0) { return false; }
 			if (c == 0) { return true; }
 			if (!last_known_) {
-				block::cursor tail(b, b.restarts() - 1);
-				while (tail.next()) {}
-				last_ = tail.key();
+				b.last_key(last_);
 				last_known_ = true;
 			}
 			if (from.compare(last_) > 0) { return false; }
