@@ -1,12 +1,15 @@
 # Seek and sequential decode
 
-Status: in progress (branch `perf/seek-decode`).
+Status: done on branch `perf/seek-decode` (kept: E1, E2, E3 with E4a, E6, E8, and the seek; removed: E4b, E5, E7).
 
 ## Ledger
 
-- State: decode E1-E6 and `cursor::seek` built; tests, seek tests, corrupt-code tests,
-  ASan and UBSan green on the Mac; strata (19/19) and prospect (36/36) pass against the
-  branch; fuzzing; final A/Bs on the Mac and the VM next.
+- State: built, measured on the Mac and the gate VM, CI green; not merged (the owner lands it).
+- Done: `e4314a5` (seek, E1-E6, bench, tests, fuzz), `01457e2` (E8, docs), and this note.
+- Next: a `seek` fast path for forward seeks inside the open block (skips `floor_value`,
+  the larger part of a seek); the remaining decode is the table lookup per symbol, which an
+  SSSE3/NEON shuffle could do 16 at a time for alphabets of 16 or fewer (strata's numeric
+  keys) behind a runtime check.
 - Blocked on: nothing.
 
 ## Target
@@ -81,5 +84,85 @@ between sessions, so the A/A spread is restated with the final A/B.
 | E5 | Fixed-count decode into a padded buffer, per-symbol code check | 21.8 | 19.4 (lost: the SLP vectorizer turned the check into `pinsrw` chains and spills) |
 | E6 | The code check as one SWAR carry test per chunk | 17.9 | 15.9 |
 
+| E7 | Eight symbols assembled in a register, one 8-byte store each (instead of a byte store per symbol) | 1.000× | 1.015× (paired, against E6: lost, inside the noise; not kept) |
+| E8 | Byte-coded tables (all 256 bytes): one fixed 16-byte move into the padding instead of a `memcpy` call of the suffix's length | coded: 1.005× | coded: 0.997× (VM, paired against E6: unchanged) |
+
 The probe showed what the trip-count branch cost: the suffix length changes every key, so
-the per-symbol loop's exit mispredicted about once per key (3-5 ns).
+the per-symbol loop's exit mispredicted about once per key (3-5 ns). A second probe (x6)
+skips the symbol decode entirely: the walk then costs 6.8 ns per key on the Mac and 7.9 on
+the VM, so of the final 17.6 ns (kv), about 7 ns is entry bookkeeping (header, bounds
+checks, positions) and about 10 ns is the decode, one table lookup and byte store per
+symbol.
+
+E8 on byte-coded tables (`TERMDICT_BENCH_BYTES=1`), paired against E6: terms 0.52× on the
+Mac and 0.60× on the VM (16.8 to 10.0 ns per key); kv unchanged (its suffixes, about 9
+bytes, already took one short `memcpy`).
+
+## Results
+
+Paired per-trial ratios (the branch's time over `main`'s in the same trial, median and
+range), seven trials of five repetitions, interleaved with the order alternating; the
+A/A pair is `main` built twice. Light holds; other agents' single-thread benchmarks shared
+the host, which the pairing absorbs. Seek and 10 on the branch is compared with `main`'s
+`reader::scan(from)` and 10 more keys, the way `main` positions.
+
+| | Mac kv | Mac terms | VM kv | VM terms |
+|---|---|---|---|---|
+| A/A, walk | 0.989 [0.896-1.120] | 1.073 [0.974-1.117] | 1.022 [0.980-1.083] | 1.023 [0.989-1.085] |
+| Walk, ns per key (main to branch) | 29.2 to 17.6 | 36.9 to 15.6 | 30.8 to 19.7 | 37.2 to 17.3 |
+| Walk, paired | 0.616 [0.547-0.662]: 1.62× faster | 0.419 [0.371-0.462]: 2.39× faster | 0.628 [0.603-0.708]: 1.59× faster | 0.464 [0.433-0.479]: 2.16× faster |
+| Seek and 10, ns (scan on main to seek) | 2,019 to 895 | 2,512 to 739 | 2,079 to 1,024 | 2,400 to 855 |
+| Seek and 10, paired | 0.451: 2.2× faster | 0.294: 3.4× faster | 0.507: 2.0× faster | 0.374: 2.7× faster |
+| `scan(from)` and 10 (now on seek) | 0.480: 2.1× faster | 0.369: 2.7× faster | 0.538: 1.9× faster | 0.410: 2.4× faster |
+| `find`, present | 0.969 (noise) | 0.973 (noise) | 1.007 (noise) | 0.946 (noise) |
+| `find`, absent | 0.949 (noise) | 0.975 (noise) | 1.029 (noise) | 1.043 (noise) |
+
+The about-15 ns target: terms meet it on the Mac (15.6) and come within 15% on the VM
+(17.3); kv is at 17.6 and 19.7.
+
+A seek is mostly memory at 1,000,000 keys: `fst::floor_value` and the block's first line
+miss the caches (see the profile), so most of the remaining seek is the index lookup.
+
+## The four axes
+
+- Time: above. Builds and `find` do not change (the builder is untouched; `find` is
+  within the A/A on both platforms).
+- Memory: `sizeof(reader::cursor)` stays 208 bytes and `block` 64. The cursor's key buffer
+  is now always on the heap, the longest key so far plus 16 bytes of padding, where
+  libc++'s `std::string` held keys of up to 22 bytes inline: one allocation of about 32
+  bytes per open cursor on strata's keys.
+- Disk: bytes identical (the golden fixture, and the same bytes per key in every run:
+  10.456 kv, 11.043 terms).
+- Indexing: the builder is unchanged, so build throughput is unchanged.
+
+## Is a format change worth it?
+
+No. The decode left is a table lookup per symbol; the format already allows byte-coded
+suffixes (an empty alphabet), which turn the decode into a copy. Measured with E8: kv
+walks in 10.8 ns per key byte-coded against 19.6 coded on the VM, but its tables grow 46%
+(15.27 against 10.46 bytes per key); terms grow 8% (11.93 against 11.04) and walk in 10.0
+against 17.2 ns. That is a writer's choice today, per dictionary, not a format change.
+
+## What it saves
+
+Per key scanned, 11-12 ns (kv) and 20-21 ns (terms); per seek and 10, 1.1 µs (kv) and
+1.6-1.8 µs (terms). A host merging or scanning 10^9 keys a day saves 12-21 CPU-seconds a
+day, which is negligible; one serving 10^5 short scans a second (YCSB E's 1-100 records,
+50 on average) saves about 50 × 12 ns + 1.1 µs = 1.7 µs per scan, 0.17 of a core per host
+(an estimate from these per-unit numbers, not a measured end-to-end run). For strata's
+format 14 this was the remaining split-against-inline gap at 100-byte values: termdict's
+walk was 32-36 ns per key against inline's 23-26 ns per whole record; it is now 16-20.
+
+## Correctness
+
+The tests (std::map comparisons; cursor seeks from wherever the last walk left off; seeks
+to every key and beside it, across every block and restart boundary, in four key shapes,
+coded and byte-coded; an out-of-alphabet code at every position and width from 1 to 8
+beside the largest valid codes, through `reader::cursor`, `seek`, and `block::cursor`),
+the same under ASan and UBSan, and the fuzz target extended to seeks (556,314 runs in 15
+minutes, then 193,723 after E8, no findings). Four mutations (the SWAR check off, the check
+narrowed, the run walk's skip rule, the next-run index) each fail the tests. strata's suite
+(19/19, and its format-14 prototypes, which use `block`'s public pieces, build) and
+prospect's (36/36) pass against the branch. CI: Linux x86_64 GCC and Clang, arm64, macOS
+arm64 and x86_64, FreeBSD, ASan and UBSan, TSan.
+
