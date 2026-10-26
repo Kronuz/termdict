@@ -23,6 +23,16 @@ std::size_t calls = 0, live = 0, peak = 0, total = 0;
 
 }  // namespace
 
+// TSan's runtime defines the replaceable operators itself; there the counts stay zero.
+#if defined(__SANITIZE_THREAD__)
+#define OPEN_BENCH_TSAN 1
+#elif defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define OPEN_BENCH_TSAN 1
+#endif
+#endif
+
+#ifndef OPEN_BENCH_TSAN
 void* operator new(std::size_t n) {
 	void* p = std::malloc(n + 16);
 	if (!p) { throw std::bad_alloc(); }
@@ -40,6 +50,7 @@ void operator delete(void* p) noexcept {
 	std::free(base);
 }
 void operator delete(void* p, std::size_t) noexcept { operator delete(p); }
+#endif
 
 namespace {
 
