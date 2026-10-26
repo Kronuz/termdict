@@ -391,7 +391,15 @@ static std::string hand_index(const std::string& nodes, std::uint64_t root, std:
 }
 
 static bool opens(const std::string& index) {
-	try { termdict::reader r(std::string_view(), index); return true; } catch (const termdict::corrupt&) { return false; }
+	try {
+		termdict::reader r(std::string_view(), index);
+		return true;
+	} catch (const termdict::corrupt&) {
+		return false;
+	} catch (...) {  // any other error type is a failure
+		CHECK(!"open threw something but termdict::corrupt");
+		return false;
+	}
 }
 
 // Opening rejects malformed FST bytes with termdict::corrupt, one hand-built case each (the

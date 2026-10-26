@@ -34,7 +34,10 @@ term statistics and postings pointers. Header-only; depends on
   two restart points, and at most 32 entry decodes that compare the target in place
   without rebuilding keys.
 - Every length and offset read from a block is bounds-checked; a violation throws
-  `termdict::corrupt`. The FST index is validated when the reader is constructed.
+  `termdict::corrupt`. The reader's constructor validates the alphabet and the whole FST
+  index, one linear pass over its nodes (no hook needed), and throws `corrupt` on malformed
+  bytes. The FST's values are block offsets; each is checked against the blocks when a
+  lookup or seek opens that block.
 - `reader(blocks, index, verify, context)` calls `verify(context, offset, length)`
   on each block's bytes before reading them (its length prefix, then the whole
   block), for checksum verification on first use; a false return throws `corrupt`.
@@ -102,8 +105,10 @@ build/termdict_bench KEYS_FILE
 The tests compare `find`, `scan`, and cursor seeks with `std::map` over random key sets
 (including long values that force small blocks) and the system dictionary, seek to every
 key and beside it across block boundaries, reject unsorted input and out-of-alphabet codes
-at every width, query every truncation and 20,000 random corruptions, and compare a golden
-fixture. `fuzz/fuzz_reader.cc` is a libFuzzer target. `build/termdict_scan_bench` times
+at every width, query every truncation and 20,000 random corruptions of the blocks, reject each malformed-FST
+case and every truncation and single-byte change of the index, and compare a golden fixture.
+`fuzz/fuzz_reader.cc` and `fuzz/fuzz_open.cc` (arbitrary blocks and index bytes) are libFuzzer
+targets. `build/termdict_scan_bench` times
 sequential decode, seeks, and lookups on strata's KV keys and a vocabulary
 ([docs/perf/seek-decode.md](docs/perf/seek-decode.md)).
 
