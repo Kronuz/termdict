@@ -378,6 +378,116 @@ static void sweep_corruption(std::mt19937_64& rng) {
 	}
 }
 
+// An index holding FST bytes assembled by hand: no alphabet (all 256 bytes), the nodes, then
+// the FST trailer (root address, key count).
+static std::string hand_index(const std::string& nodes, std::uint64_t root, std::uint64_t keys, const char* magic = "FST1") {
+	std::string s(1, '\0');
+	s += magic;
+	s += nodes;
+	for (std::uint64_t v : {root, keys}) {
+		for (int i = 0; i < 8; ++i) { s.push_back(char(v >> (8 * i))); }
+	}
+	return s;
+}
+
+static bool opens(const std::string& index) {
+	try { termdict::reader r(std::string_view(), index); return true; } catch (const termdict::corrupt&) { return false; }
+}
+
+// Opening rejects malformed FST bytes with termdict::corrupt, one hand-built case each (the
+// comments name the FST check each one trips); a lookup that reaches a block offset the
+// blocks do not hold is corrupt too.
+static void open_rejects() {
+	const std::string leaf("\x01", 1);                    // node @4: final, no transitions
+	const std::string chain("\x04" "a" "\x01", 3);        // node @5: 'a' -> leaf (delta 1)
+	CHECK(opens(hand_index(leaf + chain, 5, 1)));          // the well-formed baseline
+	CHECK(opens(hand_index(leaf + std::string("\x10" "ab" "\x10" "\x01\x01", 6), 5, 2)));  // two labels, a < b
+
+	// Not an FST: short, wrong magic, nothing after the alphabet.
+	CHECK(!opens(hand_index(leaf + chain, 5, 1).substr(0, 20)));
+	CHECK(!opens(hand_index(leaf + chain, 5, 1, "FST2")));
+	CHECK(!opens(std::string()) && !opens(std::string(1, '\0')));
+	// The root must be a node: below the magic, at the nodes' end, or past it.
+	CHECK(!opens(hand_index(leaf + chain, 3, 1)));
+	CHECK(!opens(hand_index(leaf + chain, 8, 1)));
+	CHECK(!opens(hand_index(leaf + chain, 1000, 1)));
+	CHECK(!opens(hand_index(std::string(), 4, 0)));
+	// A transition's target delta: zero, below the first node, into the middle of a node.
+	CHECK(!opens(hand_index(leaf + std::string("\x04" "a" "\x00", 3), 5, 1)));
+	CHECK(!opens(hand_index(leaf + std::string("\x04" "a" "\x02", 3), 5, 1)));
+	CHECK(!opens(hand_index(leaf + std::string("\x04" "b" "\x01" "\x04" "a" "\x02", 6), 8, 1)));
+	// A final output on a node that is not final.
+	CHECK(!opens(hand_index(std::string("\x02\x05", 2), 4, 1)));
+	// A chain node's header bits 4-7 are reserved.
+	CHECK(!opens(hand_index(leaf + std::string("\x14" "a" "\x01", 3), 5, 1)));
+	// Labels not strictly ascending (descending, repeated).
+	CHECK(!opens(hand_index(leaf + std::string("\x10" "ba" "\x10" "\x01\x01", 6), 5, 2)));
+	CHECK(!opens(hand_index(leaf + std::string("\x10" "aa" "\x10" "\x01\x01", 6), 5, 2)));
+	// More than 256 transitions (31 + varint 226 = 257).
+	CHECK(!opens(hand_index(leaf + std::string("\xf8\xe2\x01", 3) + std::string(257 + 1 + 257, '\x01'), 5, 1)));
+	// Width byte: output width over 8, target width zero or over 8.
+	for (char widths : {'\x19', '\x00', '\x90', '\xf8'}) {
+		CHECK(!opens(hand_index(leaf + std::string("\x10" "ab", 3) + widths + std::string(18, '\x01'), 5, 2)));
+	}
+	// A node cut off by the end of the nodes: labels, widths, then fields, each one short.
+	for (std::size_t keep : {std::size_t(1), std::size_t(2), std::size_t(3), std::size_t(4), std::size_t(5)}) {
+		CHECK(!opens(hand_index(leaf + std::string("\x10" "ab" "\x10" "\x01\x01", 6).substr(0, keep), 5, 2)));
+	}
+	// A varint that never ends (past 10 bytes), or runs into the end of the nodes.
+	CHECK(!opens(hand_index(leaf + std::string("\x04" "a", 2) + std::string(11, '\x81') + std::string("\x01", 1), 5, 1)));
+	CHECK(!opens(hand_index(leaf + std::string("\x04" "a" "\x81", 3), 5, 1)));
+	// The trailer: a key count that is not the paths' count, a root that is not the last node.
+	CHECK(!opens(hand_index(leaf + chain, 5, 2)));
+	CHECK(!opens(hand_index(leaf + chain, 4, 1)));
+	CHECK(!opens(hand_index(leaf + chain + leaf, 5, 1)));
+
+	// A well-formed FST over blocks that do not hold its offsets: the lookup throws corrupt.
+	{
+		const std::string index = hand_index(leaf + chain, 5, 1);  // the reader views it
+		termdict::reader r(std::string_view("\x00", 1), index);
+		bool threw = false;
+		try { (void)r.find("a"); } catch (const termdict::corrupt&) { threw = true; }
+		CHECK(threw);
+		threw = false;
+		try { termdict::reader::cursor c(r); (void)c.seek("a"); } catch (const termdict::corrupt&) { threw = true; }
+		CHECK(threw);
+	}
+}
+
+// Every single-byte change and every truncation of an index: open throws corrupt or the
+// reader answers (found keys carry values; nothing escapes but termdict::corrupt), in
+// exact-size heap blocks so ASan sees any read past the index or the blocks.
+static void sweep_index(std::mt19937_64& rng) {
+	for (int d = 0; d < 4; ++d) {
+		reference ref;
+		const std::string alpha = d % 2 ? "abcdefghijklmnopqrstuvwxyz0123456789" : "abc";
+		for (int i = 0, n = d < 2 ? 50 : 200; i < n; ++i) {
+			std::string k;
+			for (std::size_t j = 1 + rng() % 12; j; --j) { k.push_back(alpha[rng() % alpha.size()]); }
+			ref[k] = std::to_string(i);
+		}
+		auto t = build(ref, d < 2);
+		std::vector<std::string> probes{"", "a", std::string(1, '\xff')};
+		for (const auto& [k, v] : ref) { probes.push_back(k); probes.push_back(k + '\0'); }
+		auto run = [&](const std::string& bad) {
+			on_exact(t.blocks, [&](std::string_view b) { on_exact(bad, [&](std::string_view i) { drive(b, std::string(i), probes); }); });
+		};
+		for (std::size_t len = 0; len < t.index.size(); ++len) { run(t.index.substr(0, len)); }
+		for (std::size_t at = 0; at < t.index.size(); ++at) {
+			for (int bit = 0; bit < 8; ++bit) {
+				std::string bad = t.index;
+				bad[at] = char(bad[at] ^ (1 << bit));
+				run(bad);
+			}
+			for (int r = 0; r < 24; ++r) {
+				std::string bad = t.index;
+				bad[at] = char(rng());
+				run(bad);
+			}
+		}
+	}
+}
+
 // decode and decode_padded against a bit-unpacking oracle, every width and every alphabet size
 // with that width, exact-size heap source and destination, garbage past the suffix.
 static void sweep_decode(std::mt19937_64& rng) {
@@ -627,6 +737,8 @@ int main() {
 		}
 	}
 	sweep_corruption(rng);
+	open_rejects();
+	sweep_index(rng);
 	sweep_decode(rng);
 	// Golden fixture.
 	{

@@ -615,9 +615,10 @@ public:
 	// rejects the range (the read throws corrupt). For checksum verification on first use.
 	using verifier = bool (*)(void* context, std::uint64_t offset, std::uint64_t length);
 
-	reader(std::string_view blocks, std::string_view index) : blocks_(blocks), index_(alphabet_.parse(index)) {}
+	// Throws corrupt when the alphabet or the FST index is malformed.
+	reader(std::string_view blocks, std::string_view index) : blocks_(blocks), index_(open_index(alphabet_, index)) {}
 	reader(std::string_view blocks, std::string_view index, verifier verify, void* context)
-		: blocks_(blocks), index_(alphabet_.parse(index)), verify_(verify), context_(context) {}
+		: blocks_(blocks), index_(open_index(alphabet_, index)), verify_(verify), context_(context) {}
 
 	// The bytes keys use (all 256 when the dictionary names none).
 	std::string_view alphabet_bytes() const noexcept { return {alphabet_.symbol.data(), alphabet_.size}; }
@@ -786,6 +787,17 @@ public:
 	};
 
 private:
+	// Parses the alphabet, then validates the FST (one linear pass; fst throws
+	// invalid_argument), so every later lookup stays inside the index bytes.
+	static fst::map open_index(alphabet& a, std::string_view index) {
+		const std::string_view bytes = a.parse(index);
+		try {
+			return fst::map(bytes);
+		} catch (const std::invalid_argument&) {
+			detail::fail();
+		}
+	}
+
 	// The block at offset, verified first when a verifier is set: its length prefix, then
 	// the whole block.
 	block open(std::uint64_t offset) const {
