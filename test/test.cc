@@ -426,6 +426,7 @@ static void open_rejects() {
 	CHECK(!opens(hand_index(leaf + std::string("\x04" "b" "\x01" "\x04" "a" "\x02", 6), 8, 1)));
 	// A final output on a node that is not final.
 	CHECK(!opens(hand_index(std::string("\x02\x05", 2), 4, 1)));
+	CHECK(!opens(hand_index(leaf + std::string("\x06" "\x05" "a" "\x01", 4), 5, 1)));  // otherwise well-formed
 	// A chain node's header bits 4-7 are reserved.
 	CHECK(!opens(hand_index(leaf + std::string("\x14" "a" "\x01", 3), 5, 1)));
 	// Labels not strictly ascending (descending, repeated).
@@ -436,6 +437,26 @@ static void open_rejects() {
 	// Width byte: output width over 8, target width zero or over 8.
 	for (char widths : {'\x19', '\x00', '\x90', '\xf8'}) {
 		CHECK(!opens(hand_index(leaf + std::string("\x10" "ab", 3) + widths + std::string(18, '\x01'), 5, 2)));
+	}
+	// Field widths: 0-8 output bytes and 1-8 target bytes are well-formed (a two-label node with
+	// exact fields); more, or zero target bytes, is not.
+	for (unsigned ob = 0; ob <= 15; ++ob) {
+		for (unsigned tb = 0; tb <= 15; ++tb) {
+			std::string node("\x10" "ab", 3);
+			node.push_back(char(ob | tb << 4));
+			node.append(2 * ob, '\0');
+			for (int i = 0; i < 2; ++i) { node.push_back('\x01'), node.append(tb ? tb - 1 : 0, '\0'); }
+			CHECK(opens(hand_index(leaf + node, 5, 2)) == (ob <= 8 && tb >= 1 && tb <= 8));
+		}
+	}
+	// Nodes that declare more than the nodes hold: 256 transitions with 3 bytes left, 200
+	// ascending labels and then nothing, 200 labels with widths and no fields.
+	CHECK(!opens(hand_index(leaf + std::string("\xf8\xe1\x01", 3), 5, 1)));
+	{
+		std::string labels;
+		for (int i = 0; i < 200; ++i) { labels.push_back(char(i)); }
+		CHECK(!opens(hand_index(leaf + std::string("\xf8\xa9\x01", 3) + labels, 5, 200)));
+		CHECK(!opens(hand_index(leaf + std::string("\xf8\xa9\x01", 3) + labels + "\x88", 5, 200)));
 	}
 	// A node cut off by the end of the nodes: labels, widths, then fields, each one short.
 	for (std::size_t keep : {std::size_t(1), std::size_t(2), std::size_t(3), std::size_t(4), std::size_t(5)}) {
