@@ -36,7 +36,7 @@ Decode paths after open, and why lazy checks are safe:
   last, trailing node), plus a lookup past the blocks. `sweep_index`: every truncation, every bit flip
   and 24 random bytes at every position of four dictionaries' indexes, in exact-size heap buffers.
   Reverted fix (`td-no-translate`): fails at `opens`, "open threw something but termdict::corrupt".
-  ASan+UBSan (Homebrew LLVM 22-ish, `-fsanitize=address,undefined`): `termdict: ok`, 65 s. Plain: ok, 22 s.
+  ASan+UBSan (Homebrew LLVM 23.1.2, `-fsanitize=address,undefined`): `termdict: ok`, 65 s. Plain: ok, 22 s.
 - K2 met. `fuzz/fuzz_open.cc` (input = [u32 blocks size][blocks][index]; open, then scan, cursor walk,
   find, seek, forward seeks, scan from probes; only `corrupt` may escape). Seeds from
   `fuzz/make_seeds.cc`. Run: `quiet light ... termdict_fuzz_open .scratch/corpus-open fuzz/corpus/open
@@ -78,7 +78,7 @@ Decode paths after open, and why lazy checks are safe:
 - K5: branch pushed; CI watched by the lead.
 
 Commits: 175693a (translation, tests, fuzz target), 11e15a0 (bench, docs, test hardening), deceb4d
-(width/final-output/declared-size tests, corpus), plus the ledger and last test commit.
+(width, final-output and declared-size tests; corpus), ea9d9d5 (mid-node target test; this ledger).
 
 ## Next
 
