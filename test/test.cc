@@ -424,6 +424,9 @@ static void open_rejects() {
 	CHECK(!opens(hand_index(leaf + std::string("\x04" "a" "\x00", 3), 5, 1)));
 	CHECK(!opens(hand_index(leaf + std::string("\x04" "a" "\x02", 3), 5, 1)));
 	CHECK(!opens(hand_index(leaf + std::string("\x04" "b" "\x01" "\x04" "a" "\x02", 6), 8, 1)));
+	// The same with a node start after it, so the target's lower bound is a different node.
+	CHECK(!opens(hand_index(leaf + std::string("\x04" "b" "\x01" "\x04" "x" "\x03" "\x04" "a" "\x05", 9), 11, 1)));
+	CHECK(opens(hand_index(leaf + std::string("\x04" "b" "\x01" "\x04" "x" "\x03" "\x04" "a" "\x03", 9), 11, 1)));
 	// A final output on a node that is not final.
 	CHECK(!opens(hand_index(std::string("\x02\x05", 2), 4, 1)));
 	CHECK(!opens(hand_index(leaf + std::string("\x06" "\x05" "a" "\x01", 4), 5, 1)));  // otherwise well-formed
