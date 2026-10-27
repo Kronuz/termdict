@@ -45,8 +45,28 @@ static termdict::tables build(const reference& ref, bool coded = true) {
 	return b.finish();
 }
 
+// A builder with a sink writes the same blocks and index, the blocks to the sink.
+static void check_sink(const reference& ref, bool coded) {
+	const termdict::tables whole = build(ref, coded);
+	std::string alphabet;
+	if (coded) {
+		for (const auto& [k, v] : ref) { alphabet += k; }
+		std::sort(alphabet.begin(), alphabet.end());
+		alphabet.erase(std::unique(alphabet.begin(), alphabet.end()), alphabet.end());
+	}
+	std::string streamed;
+	termdict::builder b(alphabet, [&](std::string_view s) { streamed.append(s); });
+	for (const auto& [k, v] : ref) { b.add(k, v); }
+	const termdict::tables t = b.finish();
+	CHECK(t.blocks.empty());
+	CHECK(streamed == whole.blocks);
+	CHECK(t.index == whole.index);
+}
+
 static void check(const reference& ref, std::mt19937_64& rng, const std::string& alphabet, int probes) {
-	auto t = build(ref, rng() % 2);
+	const bool coded = rng() % 2;
+	check_sink(ref, coded);
+	auto t = build(ref, coded);
 	termdict::reader r(t.blocks, t.index);
 	for (const auto& [k, v] : ref) {
 		auto got = r.find(k);
