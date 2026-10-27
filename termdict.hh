@@ -48,11 +48,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace termdict {
@@ -92,10 +94,12 @@ struct tables {
 };
 
 // Builds from keys in strictly increasing byte order. `alphabet` holds every byte the
-// keys use, in any order (empty: all 256); a key with another byte is refused.
+// keys use, in any order (empty: all 256); a key with another byte is refused. With a
+// `sink`, each block's bytes go to it as the block closes, in order, and the tables' `blocks`
+// stays empty: the dictionary's memory is the open block and the index, not the output.
 class builder {
 public:
-	explicit builder(std::string_view alphabet = {}) {
+	explicit builder(std::string_view alphabet = {}, std::function<void(std::string_view)> sink = {}) : sink_(std::move(sink)) {
 		std::array<bool, 256> used{};
 		for (char c : alphabet) { used[std::uint8_t(c)] = true; }
 		for (unsigned c = 0; c < 256; ++c) {
@@ -181,10 +185,19 @@ private:
 		put(head, pending_);
 		put(head, restarts_.size());
 		for (auto r : restarts_) { put(head, r); }
-		const std::uint64_t offset = out_.blocks.size();
-		put(out_.blocks, head.size() + entries_.size());
-		out_.blocks += head;
-		out_.blocks += entries_;
+		const std::uint64_t offset = blocks_size_;
+		std::string& prefix = sink_ ? frame_ : out_.blocks;
+		const std::size_t from = prefix.size();
+		put(prefix, head.size() + entries_.size());
+		prefix += head;
+		blocks_size_ += prefix.size() - from + entries_.size();
+		if (sink_) {
+			sink_(prefix);
+			sink_(entries_);
+			prefix.clear();
+		} else {
+			out_.blocks += entries_;
+		}
 		index_.insert(first_key_, offset);
 		entries_.clear();
 		restarts_.clear();
@@ -203,6 +216,9 @@ private:
 	std::vector<std::uint64_t> restarts_;
 	std::size_t pending_ = 0;  // entries in the open block
 	std::uint64_t count_ = 0;
+	std::function<void(std::string_view)> sink_;
+	std::string frame_;  // a block's length and head, for the sink
+	std::uint64_t blocks_size_ = 0;
 };
 
 // The symbols of a dictionary's alphabet, by code.
