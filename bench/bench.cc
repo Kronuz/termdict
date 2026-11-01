@@ -1,16 +1,22 @@
 // termdict lookups on a vocabulary (one key per line): present and absent keys, against
-// an open-addressing hash map and a full-vocabulary FST; size per key for each. Medians
-// of batches of 1,024 lookups, then p50 and p99 over batches of 16 (a coarse clock, as
-// in a VM, cannot time one lookup).
+// a full-vocabulary FST, an open-addressing hash map, std::unordered_map and a sorted
+// std::vector searched with std::lower_bound; size per key for the first three. Before
+// any timing, every contender is checked on every present and absent key: the same
+// membership, and the same value where it stores one. Medians of batches of 1,024
+// lookups, then p50 and p99 over batches of 16 (a coarse clock, as in a VM, cannot time
+// one lookup).
 //   termdict_bench KEYS_FILE
 #include "termdict.hh"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <random>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -117,6 +123,9 @@ int main(int argc, char** argv) {
 	std::string fst_bytes = fb.finish();
 	fst::map full(fst_bytes);
 	hash_map h(keys);
+	std::unordered_map<std::string_view, std::size_t> um;
+	um.reserve(keys.size());
+	for (std::size_t i = 0; i < keys.size(); ++i) { um.emplace(keys[i], i); }
 
 	std::mt19937_64 rng(5);
 	std::vector<std::string> present(keys), absent;
@@ -128,24 +137,57 @@ int main(int argc, char** argv) {
 		if (!std::binary_search(keys.begin(), keys.end(), a)) { absent.push_back(a); }
 	}
 
+	// Every contender must answer alike before any of them is timed: the same membership for
+	// every present and absent key, and the key's index as the value where one is stored.
+	auto disagree = [](const char* who, const std::string& key) {
+		std::fprintf(stderr, "%s disagrees on \"%s\"\n", who, key.c_str());
+		std::exit(1);
+	};
+	for (std::size_t i = 0; i < keys.size(); ++i) {
+		char value[6];
+		std::memcpy(value, &i, 6);
+		const auto tv = r.find(keys[i]);
+		if (!tv || *tv != std::string_view(value, 6)) { disagree("termdict", keys[i]); }
+		const auto fv = full.get(keys[i]);
+		if (!fv || *fv != i) { disagree("fst", keys[i]); }
+		if (!h.contains(keys[i])) { disagree("hash map", keys[i]); }
+		const auto uv = um.find(keys[i]);
+		if (uv == um.end() || uv->second != i) { disagree("std::unordered_map", keys[i]); }
+		if (!std::binary_search(keys.begin(), keys.end(), keys[i])) { disagree("std::binary_search", keys[i]); }
+	}
+	for (const auto& k : absent) {
+		if (r.find(k)) { disagree("termdict", k); }
+		if (full.get(k)) { disagree("fst", k); }
+		if (h.contains(k)) { disagree("hash map", k); }
+		if (um.find(std::string_view(k)) != um.end()) { disagree("std::unordered_map", k); }
+		if (std::binary_search(keys.begin(), keys.end(), k)) { disagree("std::binary_search", k); }
+	}
+	std::printf("%zu present and %zu absent keys: every contender agrees\n", keys.size(), absent.size());
+
 	std::printf("%zu keys; termdict %.2f B/key (blocks %zu + index %zu), fst %.2f B/key, hash map %.2f B/key\n", keys.size(),
 		double(t.blocks.size() + t.index.size()) / double(keys.size()), t.blocks.size(), t.index.size(),
 		double(fst_bytes.size()) / double(keys.size()), double(h.bytes()) / double(keys.size()));
-	std::printf("%-10s %14s %14s %14s\n", "", "termdict ns", "fst get ns", "hash map ns");
+	std::printf("%-10s %14s %14s %14s %14s %14s\n", "", "termdict ns", "fst get ns", "hash map ns", "unordered_map", "binary_search");
 	for (int round = 0; round < 2; ++round) {
 		double tp = median_ns(present, [&](const std::string& k) { return r.find(k).has_value(); });
 		double fp = median_ns(present, [&](const std::string& k) { return full.get(k).has_value(); });
 		double hp = median_ns(present, [&](const std::string& k) { return h.contains(k); });
+		double up = median_ns(present, [&](const std::string& k) { return um.find(std::string_view(k)) != um.end(); });
+		double bp = median_ns(present, [&](const std::string& k) { return std::binary_search(keys.begin(), keys.end(), k); });
 		double ta = median_ns(absent, [&](const std::string& k) { return r.find(k).has_value(); });
 		double fa = median_ns(absent, [&](const std::string& k) { return full.get(k).has_value(); });
 		double ha = median_ns(absent, [&](const std::string& k) { return h.contains(k); });
-		std::printf("%-10s %14.1f %14.1f %14.1f\n%-10s %14.1f %14.1f %14.1f\n", "present", tp, fp, hp, "absent", ta, fa, ha);
+		double ua = median_ns(absent, [&](const std::string& k) { return um.find(std::string_view(k)) != um.end(); });
+		double ba = median_ns(absent, [&](const std::string& k) { return std::binary_search(keys.begin(), keys.end(), k); });
+		std::printf("%-10s %14.1f %14.1f %14.1f %14.1f %14.1f\n%-10s %14.1f %14.1f %14.1f %14.1f %14.1f\n", "present", tp, fp, hp, up, bp, "absent", ta, fa, ha, ua, ba);
 	}
-	std::printf("%-10s %14s %14s %14s\n", "batch16", "termdict p50/p99", "fst p50/p99", "hash map p50/p99");
+	std::printf("%-10s %14s %14s %14s %14s %14s\n", "batch16", "termdict p50/p99", "fst p50/p99", "hash map p50/p99", "unordered_map", "binary_search");
 	for (const auto* set : {&present, &absent}) {
 		auto tq = percentiles_ns(*set, [&](const std::string& k) { return r.find(k).has_value(); });
 		auto fq = percentiles_ns(*set, [&](const std::string& k) { return full.get(k).has_value(); });
 		auto hq = percentiles_ns(*set, [&](const std::string& k) { return h.contains(k); });
-		std::printf("%-10s %7.0f/%-6.0f %7.0f/%-6.0f %7.0f/%-6.0f\n", set == &present ? "present" : "absent", tq.first, tq.second, fq.first, fq.second, hq.first, hq.second);
+		auto uq = percentiles_ns(*set, [&](const std::string& k) { return um.find(std::string_view(k)) != um.end(); });
+		auto bq = percentiles_ns(*set, [&](const std::string& k) { return std::binary_search(keys.begin(), keys.end(), k); });
+		std::printf("%-10s %7.0f/%-6.0f %7.0f/%-6.0f %7.0f/%-6.0f %7.0f/%-6.0f %7.0f/%-6.0f\n", set == &present ? "present" : "absent", tq.first, tq.second, fq.first, fq.second, hq.first, hq.second, uq.first, uq.second, bq.first, bq.second);
 	}
 }
