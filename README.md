@@ -21,7 +21,7 @@ and postings pointers.
   `reader` opens them in place as `std::string_view`s.
 - **Compact.** Blocks of 32 to 64 prefix-compressed entries, a restart every 32, and key
   suffixes coded in `bit_width(alphabet size - 1)` bits a byte (5 for lowercase terms):
-  12.35 bytes per key on the English Wikipedia vocabulary, 6-byte values included.
+  11.04 bytes per key on the 235,976 words of `/usr/share/dict/words`, 6-byte values included.
 - **Lookups without rebuilding keys.** One `fst::floor_value` over the block index, a
   binary search over at most two restart points, and at most 32 entry decodes that
   compare the target in place.
@@ -91,31 +91,36 @@ immutable segments.
 Not for:
 
 - **Mutable maps.** Build once, then read; keys go in strictly increasing order.
-- **Point lookups alone.** A hash map answers a present key in 126 ns against 645 ns
-  here (see [Performance](#-performance)); termdict pays for order and size.
+- **Point lookups alone.** A hash map answers a present key in 28 ns against 229 ns
+  on the M4 Pro (see [Performance](#-performance)); termdict pays for order and size.
 - **Trusting unverified blocks.** Without the `verify` hook, a lookup, seek, or scan
   checks only the entries it decodes, so damage elsewhere in a block goes unnoticed
   until something reads it.
 
 ## ⚡ Performance
 
-English Wikipedia vocabulary (3,964,752 terms), 6-byte values, against Lucene 10.4's
-`TermsEnum.seekExact` on the same terms. Absent keys are present keys with a byte
-appended or the last byte changed.
+`reader::find` on the 235,976 words of `/usr/share/dict/words`, each with a 6-byte value,
+in nanoseconds per lookup: the median over batches of 1,024 lookups, then the median of
+six rounds (three runs of two). Absent keys are present keys with a `q` appended or the last
+byte's low bit flipped. The comparators are `fst::get` on one FST over the whole vocabulary
+([fst](https://github.com/Kronuz/fst) at the commit CMake pins) and the open-addressing
+hash map in the bench.
 
-| Lookup | termdict | Lucene `seekExact` | Full-vocabulary `fst::get` | Hash map |
-| --- | ---: | ---: | ---: | ---: |
-| Present | 645 ns | 1,190 ns | 368 ns | 126 ns |
-| Absent | 686 ns | 1,250 ns | 389 ns | 94 ns |
+| Machine | Lookup | termdict | Full-vocabulary `fst::get` | Hash map |
+| --- | --- | ---: | ---: | ---: |
+| Apple M4 Pro | present | 229 | 144 | 28 |
+| Apple M4 Pro | absent | 234 | 151 | 33 |
+| Intel Core i9-9980HK | present | 384 | 122 | 51 |
+| Intel Core i9-9980HK | absent | 442 | 129 | 39 |
 
-The tables take 12.35 bytes per key including the 6-byte values (blocks 48.0 MB, index
-0.9 MB). Linux VM on an Intel Core i9-9980HK, Clang 18, `-O3`; the termdict, FST, and
-hash-map columns come from:
+The tables take 11.04 bytes per key including the values (blocks 2,553,391 bytes, index
+52,386), the full-vocabulary FST 6.20 and the hash map 62.89. Apple clang 17 on macOS,
+`-O3 -DNDEBUG`:
 
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target termdict_bench
-./build/termdict_bench KEYS_FILE   # one key per line
+./build/termdict_bench /usr/share/dict/words   # one key per line
 ```
 
 [docs/perf/](docs/perf/) has the seek and decode measurements.
