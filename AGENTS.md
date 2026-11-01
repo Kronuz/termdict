@@ -12,7 +12,8 @@ bench/open.cc          Open cost (time, allocations) on a saved vocabulary's tab
 bench/bench.cc         Lookups against a hash map and a full FST on a vocabulary file.
 bench/scan.cc          Sequential decode, seeks, and lookups on strata's KV keys and a vocabulary.
 docs/perf/             Measured experiments, kept and removed.
-docs/termdict.d2     README diagram; render: d2 --layout elk --sketch --theme 302 docs/termdict.d2 docs/termdict.svg
+docs/termdict.d2       README diagram; render: d2 --layout elk --sketch --theme 302 docs/termdict.d2 docs/termdict.svg
+ARCHITECTURE.md        Building, reading, seeking, validation, and what the tests cover.
 ```
 
 ## Invariants

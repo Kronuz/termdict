@@ -1,15 +1,19 @@
 # termdict: an FST maps each block's first key to its offset; blocks hold the rest.
 # Render: d2 --layout elk --sketch --theme 302 docs/termdict.d2 docs/termdict.svg
-direction: right
+vars: { d2-config: { layout-engine: elk; theme-id: 302; sketch: true; pad: 24 } }
+grid-columns: 2
+horizontal-gap: 200
+vertical-gap: 100
 key: "lookup \"apple\"" {shape: oval}
 index: "index FST\nfirst key → block offset" {shape: hexagon}
+value: "value bytes\nstats · postings pointer" {shape: page}
 blocks: blocks {
-  grid-rows: 1
+  grid-columns: 1
+  grid-gap: 16
   b0: "block 0\n\"aardvark\" … \"apex\""
   b1: "block 1\n\"apple\" … \"azure\""
   b2: "block 2\n\"banana\" …"
 }
-value: "value bytes\nstats · postings pointer" {shape: page}
 key -> index: "floor search"
 index -> blocks.b1: "offset"
-blocks.b1 -> value: "binary search restarts, then scan"
+blocks.b1 -> value: "restarts, then scan"
