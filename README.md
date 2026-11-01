@@ -91,7 +91,7 @@ immutable segments.
 Not for:
 
 - **Mutable maps.** Build once, then read; keys go in strictly increasing order.
-- **Point lookups alone.** A hash map answers a present key in 28 ns against 229 ns
+- **Point lookups alone.** A hash map answers a present key in 30 ns against 239 ns
   on the M4 Pro (see [Performance](#-performance)); termdict pays for order and size.
 - **Trusting unverified blocks.** Without the `verify` hook, a lookup, seek, or scan
   checks only the entries it decodes, so damage elsewhere in a block goes unnoticed
@@ -99,36 +99,52 @@ Not for:
 
 ## ⚡ Performance
 
-`reader::find` on the 235,976 words of `/usr/share/dict/words`, each with a 6-byte value,
-in nanoseconds per lookup: the median over batches of 1,024 lookups, then the median of
-six rounds (three runs of two). Absent keys are present keys with a `q` appended or the last
-byte's low bit flipped. The comparators are `fst::get` on one FST over the whole vocabulary
-([fst](https://github.com/Kronuz/fst) at the commit CMake pins) and the open-addressing
-hash map in the bench.
+`reader::find` on the 235,976 words of `/usr/share/dict/words` (the macOS word list, one key
+per line), each with a 6-byte value, in nanoseconds per lookup: the median over batches of
+1,024 lookups, then the median of six rounds (three runs of two). A `present` lookup finds a
+key that is in the table; an `absent` one asks for a present key with a `q` appended or its
+last byte's low bit flipped. The columns are the structures that answer the same lookup:
 
-| Machine | Lookup | termdict | Full-vocabulary `fst::get` | Hash map |
-| --- | --- | ---: | ---: | ---: |
-| Apple M4 Pro | present | 229 | 144 | 28 |
-| Apple M4 Pro | absent | 234 | 151 | 33 |
-| Intel Core i9-9980HK | present | 384 | 122 | 51 |
-| Intel Core i9-9980HK | absent | 442 | 129 | 39 |
+- **termdict**: `reader::find`.
+- **`fst::get`**: one FST over the whole vocabulary, [fst](https://github.com/Kronuz/fst/tree/39245fa)
+  at commit 39245fa, the one CMake pins.
+- **Hash map**: the open-addressing table in `bench/bench.cc` (FNV-1a, linear probing, at
+  most half full).
+- **`std::unordered_map`** keyed by `std::string_view`, and **`std::binary_search`** over a
+  sorted `std::vector<std::string>`: the standard library of Apple clang 17 (libc++).
 
-The tables take 11.04 bytes per key including the values (blocks 2,553,391 bytes, index
-52,386), the full-vocabulary FST 6.20 and the hash map 62.89. Apple clang 17 on macOS,
-`-O3 -DNDEBUG`:
+Before it times anything the bench checks that every column finds every present key (with the
+key's index as the value, for termdict and the FST) and none of the absent ones.
+
+| Machine | Lookup | termdict | `fst::get` | Hash map | `std::unordered_map` | `std::binary_search` |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Apple M4 Pro | present | 239 | 146 | 30 | 46 | 190 |
+| Apple M4 Pro | absent | 248 | 154 | 34 | 33 | 193 |
+| Intel Core i9-9980HK | present | 422 | 126 | 57 | 194 | 321 |
+| Intel Core i9-9980HK | absent | 436 | 132 | 42 | 116 | 324 |
+
+termdict is the slowest column on both machines: a lookup is one FST floor, a binary search over
+at most two restart points and at most 32 in-place entry decodes, the price of ordered scans
+and seeks in a small table. The tables take 11.04 bytes per key including the values (blocks 2,553,391
+bytes, index 52,386), against 6.20 for the full-vocabulary FST (64-bit values) and 62.89 for
+the hash map; the two standard containers were not sized.
+
+Apple M4 Pro (macOS 26) and Intel Core i9-9980HK (macOS 15), Apple clang 17, `-O3 -DNDEBUG`
+(CMake's Release), each with the machine to itself:
 
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target termdict_bench
-./build/termdict_bench /usr/share/dict/words   # one key per line
+./build/termdict_bench /usr/share/dict/words   # two rounds a run; run it three times
 ```
 
-[docs/perf/](docs/perf/) has the seek and decode measurements.
+[docs/perf/lookup.md](docs/perf/lookup.md) has the spread and the p50 and p99 of each column;
+the seek and decode measurements are in the other notes of [docs/perf/](docs/perf/).
 
 ## 📚 Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): building, reading, seeking, and validation.
-- [docs/perf/](docs/perf/): the seek and decode measurements.
+- [docs/perf/](docs/perf/): the lookup comparison, and the seek and decode measurements.
 - [AGENTS.md](AGENTS.md): repository map, the byte layout, and invariants.
 - [Catalog entry](https://github.com/Kronuz/cpp-libraries/blob/main/AGENTS.md#termdict).
 
