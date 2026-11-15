@@ -143,6 +143,8 @@ the seek and decode measurements are in the other notes of [docs/perf/](docs/per
 
 ## 📚 Documentation
 
+- [A Map of Blocks](https://kronuz.github.io/blog/fst/):
+  the Familiars post on why it exists and how it works.
 - [ARCHITECTURE.md](ARCHITECTURE.md): building, reading, seeking, and validation.
 - [docs/perf/](docs/perf/): the lookup comparison, and the seek and decode measurements.
 - [AGENTS.md](AGENTS.md): repository map, the byte layout, and invariants.
