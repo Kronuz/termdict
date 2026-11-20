@@ -693,9 +693,18 @@ public:
 		// one index lookup, a binary search of the run starts, and one run walked without
 		// building keys.
 		bool seek(std::string_view from) {
+			return seek(from, [](std::string_view) {});
+		}
+		// The same; visit(value) sees, in order, the values of the entries the seek passes and
+		// the landing's last. Each pass starts at a restart entry or at the entry after the
+		// cursor's, so a decoder of values that depend on their run's earlier ones (reset at a
+		// restart, as find_run's visitors are) holds the landing's state. A seek that stays on
+		// the cursor's entry visits nothing.
+		template <typename Visit>
+		bool seek(std::string_view from, Visit&& visit) {
 			const bool ahead = on_entry_;
 			on_entry_ = false;
-			if (ahead && forward(from)) {
+			if (ahead && forward(from, visit)) {
 				on_entry_ = true;
 				return true;
 			}
@@ -705,7 +714,7 @@ public:
 				at_ = {};
 				count_ = 0;
 				next_ = 0;
-				return next();
+				return next_visited(visit);
 			}
 			open(*offset);
 			const block& b = *block_;
@@ -715,9 +724,9 @@ public:
 				if (b.compare_restart(mid, from) <= 0) { lo = mid; } else { hi = mid; }
 			}
 			block::landing l;
-			if (!b.walk_to(lo, from, [](std::string_view) {}, l)) {
+			if (!b.walk_to(lo, from, visit, l)) {
 				at_.index = std::min(count_, (lo + 1) * restart_interval);  // the next run's first entry
-				return next();
+				return next_visited(visit);
 			}
 			size_ = b.land(l, from, key_, at_);
 			value_ = l.value;
@@ -735,7 +744,8 @@ public:
 		// key; one comparison against the cached last key decides. Only called while
 		// on_entry_ holds: next() and seek() clear it before decoding and set it after, so
 		// the key is current and at_.index is past the entry (never 0).
-		bool forward(std::string_view from) {
+		template <typename Visit>
+		bool forward(std::string_view from, Visit& visit) {
 			const block& b = *block_;
 			// Two runs at most: a landing run past the current one is the block's last, so
 			// walk_to cannot miss once from <= the last key.
@@ -764,14 +774,22 @@ public:
 				const std::size_t end = std::min(count_, (run + 1) * restart_interval);
 				while (at_.index < end) {
 					size_ = b.step<true>(at_, key_, size_, value_);
+					visit(value_);
 					if (std::string_view(key_.data(), size_).compare(from) >= 0) { return true; }
 				}
-				return at_.index < count_ && next();  // the next run's first key is above from
+				return at_.index < count_ && next_visited(visit);  // the next run's first key is above from
 			}
 			block::landing l;
-			if (!b.walk_to(lo, from, [](std::string_view) {}, l)) { return false; }  // only unsorted data
+			if (!b.walk_to(lo, from, visit, l)) { return false; }  // only unsorted data
 			size_ = b.land(l, from, key_, at_);
 			value_ = l.value;
+			return true;
+		}
+
+		template <typename Visit>
+		bool next_visited(Visit& visit) {
+			if (!next()) { return false; }
+			visit(value_);
 			return true;
 		}
 

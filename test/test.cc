@@ -134,24 +134,41 @@ static void check_seek(const std::vector<std::string>& keys, bool coded) {
 	auto t = build(ref, coded);
 	termdict::reader r(t.blocks, t.index);
 	termdict::reader::cursor c(r);
+	// The values a decoder has seen up to the cursor's entry: find_run's visits for its key.
+	std::vector<std::string> state;
+	auto run_of = [&](std::string_view key) {
+		std::vector<std::string> v;
+		r.find_run(key, [&](std::string_view value) { v.emplace_back(value); });
+		return v;
+	};
 	auto expect = [&](const std::string& probe) {
 		auto w = ref.lower_bound(probe);
-		const bool found = c.seek(probe);
+		std::vector<std::string> seen;
+		const bool found = c.seek(probe, [&](std::string_view v) { seen.emplace_back(v); });
 		CHECK(found == (w != ref.end()));
 		if (found && w != ref.end()) {
 			CHECK(c.key() == w->first && c.value() == w->second);
+			// seek(from, visit): what the decoder saw, then the visits, end with the landing's run.
+			const auto want = run_of(c.key());
+			state.insert(state.end(), seen.begin(), seen.end());
+			CHECK(state.size() >= want.size() && std::equal(want.begin(), want.end(), state.end() - std::ptrdiff_t(want.size())));
+			CHECK(seen.empty() ? !state.empty() && state.back() == c.value() : seen.back() == c.value());
 			if (std::next(w) != ref.end()) {
 				CHECK(c.next() && c.key() == std::next(w)->first);
+				state = run_of(c.key());
 			} else {
 				CHECK(!c.next());
+				state.clear();
 			}
 		} else {
 			CHECK(!c.next());
+			state.clear();
 		}
 	};
 	// Forward seeks that stay on one cursor: short hops, run and block crossings.
 	for (std::size_t step : {1, 2, 5, 31, 32, 33, 100, 700}) {
 		c.seek("");
+		state = run_of(c.key());
 		for (std::size_t i = 0; i < keys.size(); i += step) {
 			expect(i % 2 ? keys[i] : keys[i] + '\0');
 		}

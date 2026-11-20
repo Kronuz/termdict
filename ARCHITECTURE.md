@@ -21,6 +21,9 @@ lookups, scans, and seeks. [AGENTS.md](AGENTS.md) has the exact byte layout of b
   `scan(from, f)` visits entries with keys `>= from` in order; `reader::cursor` pulls
   every entry in order, one block decoded at a time, for k-way merges of dictionaries,
   and `cursor::seek(from)` moves it to the first key `>= from` from any position.
+  `seek(from, visit)` also shows the values it passes, from a restart or from the entry
+  after the cursor's, so values that depend on their run's earlier ones (as `find_run`'s
+  visitors decode them) decode at the landing without a second lookup.
 - A lookup is one `fst::floor_value` over the block index, a binary search over at most
   two restart points, and at most 32 entry decodes that compare the target in place
   without rebuilding keys.
@@ -45,7 +48,7 @@ lookups, scans, and seeks. [AGENTS.md](AGENTS.md) has the exact byte layout of b
 
 The tests compare `find`, `scan`, and cursor seeks with `std::map` over random key sets
 (including long values that force small blocks) and the system dictionary, seek to every
-key and beside it across block boundaries, reject unsorted input and out-of-alphabet codes
+key and beside it across block boundaries (each seek's visits ending in `find_run`'s), reject unsorted input and out-of-alphabet codes
 at every width, query every truncation and 20,000 random corruptions of the blocks, reject each malformed-FST
 case and every truncation and single-byte change of the index, and compare a golden fixture.
 `fuzz/fuzz_reader.cc` and `fuzz/fuzz_open.cc` (arbitrary blocks and index bytes) are libFuzzer
